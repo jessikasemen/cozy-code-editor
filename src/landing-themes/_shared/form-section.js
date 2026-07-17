@@ -22,6 +22,33 @@
     if(/\/bewerbung\/verbinden/.test(url)) return {label:'Weiter zur Terminwahl  →', sub:'Im nächsten Schritt wählen Sie Ihren Wunschtermin.'};
     return {label:'Jetzt weiter  →', sub:'Klicken Sie auf den Button, um fortzufahren.'};
   }
+  function openBookingOverlay(url){
+    if(!url){return;}
+    var existing=document.getElementById('lv-booking-overlay');
+    if(existing){existing.remove();}
+    var ov=document.createElement('div');ov.id='lv-booking-overlay';
+    ov.setAttribute('role','dialog');ov.setAttribute('aria-modal','true');
+    ov.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.7);display:flex;align-items:center;justify-content:center;z-index:10000;padding:16px;backdrop-filter:blur(3px);';
+    var frameBox=document.createElement('div');
+    frameBox.style.cssText='background:#fff;width:100%;max-width:760px;height:90vh;max-height:900px;border-radius:14px;box-shadow:0 20px 60px -10px rgba(0,0,0,.45);position:relative;overflow:hidden;display:flex;flex-direction:column;';
+    var bar=document.createElement('div');
+    bar.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid #e2e8f0;background:#f8fafc;';
+    var title=document.createElement('div');title.textContent='Termin auswählen';
+    title.style.cssText='font-size:14px;font-weight:600;color:#0f172a;';
+    var closeBtn=document.createElement('button');closeBtn.type='button';closeBtn.innerHTML='&times;';
+    closeBtn.setAttribute('aria-label','Schließen');
+    closeBtn.style.cssText='background:none;border:0;font-size:26px;line-height:1;cursor:pointer;color:#64748b;padding:0 4px;';
+    closeBtn.onclick=function(){ov.remove();};
+    bar.appendChild(title);bar.appendChild(closeBtn);
+    var iframe=document.createElement('iframe');
+    iframe.src=url;iframe.title='Terminauswahl';
+    iframe.setAttribute('allow','clipboard-write');
+    iframe.style.cssText='flex:1;width:100%;border:0;background:#fff;';
+    frameBox.appendChild(bar);frameBox.appendChild(iframe);
+    ov.appendChild(frameBox);
+    ov.addEventListener('click',function(e){if(e.target===ov)ov.remove();});
+    document.body.appendChild(ov);
+  }
   function showModal(opts){
     opts=opts||{};var isFast=!!opts.fast;var broker=opts.broker||null;var wa=String(opts.whatsapp||'').replace(/[^0-9]/g,'');
     var redirectUrl=opts.redirectUrl||'';var emailStatus=opts.emailStatus||null;
@@ -43,12 +70,24 @@
       // Vermittlung / eigenes Buchungssystem / KI-Interview: immer großer CTA.
       h.textContent='✅ Bewerbung eingegangen';
       p.textContent=meta.sub;
-      var cta=document.createElement('a');cta.href=redirectUrl;
+      var isBooking=/\/buchen\//.test(redirectUrl);
+      var cta=document.createElement(isBooking?'button':'a');
+      if(isBooking){cta.type='button';}else{cta.href=redirectUrl;}
       cta.textContent=meta.label;
-      cta.style.cssText='display:block;width:100%;background:#0f172a;color:#fff;text-decoration:none;font-weight:600;padding:16px 24px;border-radius:10px;font-size:16px;margin-bottom:6px;box-sizing:border-box;';
+      cta.style.cssText='display:block;width:100%;background:#0f172a;color:#fff;border:0;text-align:center;text-decoration:none;font-weight:600;padding:16px 24px;border-radius:10px;font-size:16px;margin-bottom:6px;box-sizing:border-box;cursor:pointer;';
+      if(isBooking){cta.onclick=function(){openBookingOverlay(redirectUrl);};}
       box.appendChild(cta);
-      var sub=document.createElement('p');sub.style.cssText='margin:8px 0 4px;font-size:13px;color:#64748b;';sub.textContent=emailStatus&&emailStatus.status==='sent'?'Sie erhalten zusätzlich eine E-Mail als Backup.':'Falls keine E-Mail ankommt, können Sie direkt über diesen Button fortfahren.';
+      var sub=document.createElement('p');sub.style.cssText='margin:8px 0 4px;font-size:13px;color:#64748b;';
+      sub.textContent=isBooking
+        ? 'Nach Auswahl Ihres Wunschtermins erhalten Sie eine E-Mail mit allen Details (u. a. wo/wie das Gespräch stattfindet).'
+        : (emailStatus&&emailStatus.status==='sent'?'Sie erhalten zusätzlich eine E-Mail als Backup.':'Falls keine E-Mail ankommt, können Sie direkt über diesen Button fortfahren.');
       box.appendChild(sub);
+      if(isBooking){
+        var fb=document.createElement('a');fb.href=redirectUrl;fb.target='_blank';fb.rel='noopener';
+        fb.textContent='Fenster lädt nicht? In neuem Tab öffnen →';
+        fb.style.cssText='display:block;margin:6px 0 0;font-size:12px;color:#2563eb;text-decoration:none;';
+        box.appendChild(fb);
+      }
       box.appendChild(spamHintBox(emailStatus));
     } else if(broker){
       h.textContent=broker.intro_headline||'✅ Bewerbung eingegangen';
