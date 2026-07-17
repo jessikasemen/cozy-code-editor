@@ -47,14 +47,18 @@ GRANT ALL ON public.landing_servers TO service_role;
 
 ALTER TABLE public.landing_servers ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "admins read servers" ON public.landing_servers;
 CREATE POLICY "admins read servers" ON public.landing_servers
   FOR SELECT TO authenticated USING (public.has_role(auth.uid(), 'admin'));
+DROP POLICY IF EXISTS "admins insert servers" ON public.landing_servers;
 CREATE POLICY "admins insert servers" ON public.landing_servers
   FOR INSERT TO authenticated WITH CHECK (public.has_role(auth.uid(), 'admin'));
+DROP POLICY IF EXISTS "admins update servers" ON public.landing_servers;
 CREATE POLICY "admins update servers" ON public.landing_servers
   FOR UPDATE TO authenticated
   USING (public.has_role(auth.uid(), 'admin'))
   WITH CHECK (public.has_role(auth.uid(), 'admin'));
+DROP POLICY IF EXISTS "admins delete servers" ON public.landing_servers;
 CREATE POLICY "admins delete servers" ON public.landing_servers
   FOR DELETE TO authenticated USING (public.has_role(auth.uid(), 'admin'));
 
@@ -88,6 +92,7 @@ GRANT ALL ON public.cloudflare_accounts TO service_role;
 
 ALTER TABLE public.cloudflare_accounts ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "admins manage cf accounts" ON public.cloudflare_accounts;
 CREATE POLICY "admins manage cf accounts" ON public.cloudflare_accounts
   FOR ALL TO authenticated
   USING (public.has_role(auth.uid(), 'admin'))
@@ -123,6 +128,7 @@ GRANT ALL ON public.cloudflare_zones TO service_role;
 
 ALTER TABLE public.cloudflare_zones ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "admins manage cf zones" ON public.cloudflare_zones;
 CREATE POLICY "admins manage cf zones" ON public.cloudflare_zones
   FOR ALL TO authenticated
   USING (public.has_role(auth.uid(), 'admin'))
@@ -150,8 +156,10 @@ GRANT ALL ON public.automation_log TO service_role;
 
 ALTER TABLE public.automation_log ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "admins read log" ON public.automation_log;
 CREATE POLICY "admins read log" ON public.automation_log
   FOR SELECT TO authenticated USING (public.has_role(auth.uid(), 'admin'));
+DROP POLICY IF EXISTS "admins insert log" ON public.automation_log;
 CREATE POLICY "admins insert log" ON public.automation_log
   FOR INSERT TO authenticated WITH CHECK (public.has_role(auth.uid(), 'admin'));
 
