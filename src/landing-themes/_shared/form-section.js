@@ -228,12 +228,15 @@
       var tokenMatch=redirectUrl.match(/\/buchen\/([^/?#]+)/);
       var token=tokenMatch?tokenMatch[1]:null;
       if(token){
+        var form=document.getElementById('application-form');
+        var statusEl=document.getElementById('form-status');
         var host=document.getElementById('booking-inline-host');
         if(!host){
           host=document.createElement('div');host.id='booking-inline-host';
-          var form=document.getElementById('application-form');
           (form&&form.parentNode?form.parentNode:document.body).insertBefore(host, form?form.nextSibling:null);
         }
+        if(form)form.style.display='none';
+        if(statusEl)statusEl.style.display='none';
         host.scrollIntoView({behavior:'smooth',block:'start'});
         renderBookingInline(host, token, {emailStatus:emailStatus});
         return;
