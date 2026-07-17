@@ -14,21 +14,46 @@ CREATE TABLE IF NOT EXISTS public.tenant_smtp_health (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
--- Ownership auf CURRENT_USER (postgres) setzen, falls die Tabelle vorher
--- von einer anderen Rolle angelegt wurde — sonst schlägt ENABLE RLS mit
--- "must be owner of table" fehl.
-ALTER TABLE public.tenant_smtp_health OWNER TO CURRENT_USER;
+-- Wenn die Tabelle auf Bestandssystemen bereits von einer anderen Rolle
+-- angelegt wurde, dürfen wir Owner/RLS/Policies ggf. nicht ändern.
+-- Dann darf die Migration trotzdem nicht abbrechen, damit spätere Migrations
+-- weiterlaufen können.
+DO $$
+BEGIN
+  ALTER TABLE public.tenant_smtp_health OWNER TO CURRENT_USER;
+EXCEPTION
+  WHEN insufficient_privilege THEN
+    RAISE NOTICE 'Skipping owner change for tenant_smtp_health: current user is not owner';
+END $$;
 
 GRANT SELECT ON public.tenant_smtp_health TO authenticated;
 GRANT ALL    ON public.tenant_smtp_health TO service_role;
 
-ALTER TABLE public.tenant_smtp_health ENABLE ROW LEVEL SECURITY;
+DO $$
+BEGIN
+  ALTER TABLE public.tenant_smtp_health ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN insufficient_privilege THEN
+    RAISE NOTICE 'Skipping RLS enable for tenant_smtp_health: current user is not owner';
+END $$;
 
-DROP POLICY IF EXISTS "Admins read smtp_health" ON public.tenant_smtp_health;
-CREATE POLICY "Admins read smtp_health"
-  ON public.tenant_smtp_health
-  FOR SELECT TO authenticated
-  USING (public.has_role(auth.uid(), 'admin'));
+DO $$
+BEGIN
+  DROP POLICY IF EXISTS "Admins read smtp_health" ON public.tenant_smtp_health;
+  CREATE POLICY "Admins read smtp_health"
+    ON public.tenant_smtp_health
+    FOR SELECT TO authenticated
+    USING (public.has_role(auth.uid(), 'admin'));
+EXCEPTION
+  WHEN insufficient_privilege THEN
+    RAISE NOTICE 'Skipping policy update for tenant_smtp_health: current user is not owner';
+END $$;
 
-COMMENT ON TABLE public.tenant_smtp_health IS
-  'SMTP-Verify-Health-Counter pro Tenant. Bei >=3 consecutive_fails wird der Tenant auto-pausiert.';
+DO $$
+BEGIN
+  COMMENT ON TABLE public.tenant_smtp_health IS
+    'SMTP-Verify-Health-Counter pro Tenant. Bei >=3 consecutive_fails wird der Tenant auto-pausiert.';
+EXCEPTION
+  WHEN insufficient_privilege THEN
+    RAISE NOTICE 'Skipping comment for tenant_smtp_health: current user is not owner';
+END $$;
