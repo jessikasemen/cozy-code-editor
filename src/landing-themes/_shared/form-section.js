@@ -150,14 +150,14 @@
           if(!res.body||!res.body.ok){
             if(res.status===409){
               showError('Dieser Termin wurde gerade schon vergeben. Bitte wählen Sie einen anderen.');
-              loadWeek();return;
+              loadRange();return;
             }
             showError('Buchung fehlgeschlagen. Bitte versuchen Sie es erneut.');
-            renderWeek();return;
+            renderRange();return;
           }
           renderConfirmed(res.body);
         })
-        .catch(function(){showError('Netzwerkfehler bei der Buchung.');renderWeek();});
+        .catch(function(){showError('Netzwerkfehler bei der Buchung.');renderRange();});
     }
 
     function renderConfirmed(bk){
@@ -201,7 +201,7 @@
           greet+='.';
         }
         sub.textContent=greet;
-        loadWeek();
+        loadRange();
       })
       .catch(function(){sub.textContent='';showError('Netzwerkfehler beim Laden des Kalenders.');});
   }
