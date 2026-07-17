@@ -13,6 +13,10 @@ ALTER TABLE public.employee_contract_overrides
   DROP CONSTRAINT IF EXISTS employee_contract_overrides_one_source;
 
 -- Neue, weichere Constraint: irgendetwas muss gesetzt sein.
+-- Idempotent: erst droppen, dann neu anlegen (falls Migration erneut läuft).
+ALTER TABLE public.employee_contract_overrides
+  DROP CONSTRAINT IF EXISTS employee_contract_overrides_any_value;
+
 ALTER TABLE public.employee_contract_overrides
   ADD CONSTRAINT employee_contract_overrides_any_value
   CHECK (
