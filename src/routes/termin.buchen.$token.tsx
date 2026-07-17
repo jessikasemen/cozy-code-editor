@@ -24,7 +24,7 @@ export const Route = createFileRoute("/termin/buchen/$token")({
   component: BookingPage,
 });
 
-const DAYS_PER_VIEW = 7;
+const DAYS_PER_VIEW = 28;
 
 function BookingPage() {
   const { token } = Route.useParams();
