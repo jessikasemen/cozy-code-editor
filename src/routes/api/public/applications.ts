@@ -291,6 +291,23 @@ export const Route = createFileRoute("/api/public/applications")({
         // Source-Landing ist Fallback für Vermittlungsseiten ohne Ziel-Kalender.
         // K3: bei Dedup-Reuse die ORIGINAL source/target IDs nehmen, damit
         // Buchungs-Redirect + Statistik konsistent bleiben.
+        //
+        // PORTAL_URL-Fallback: Ältere Landings wurden ohne portal_url generiert
+        // (window.PORTAL_URL = ""). Ohne portal_url baut die Route keine
+        // Buchungs-URL → Bewerber sehen kein "Jetzt Termin buchen"-Button.
+        // Fallback: aus tenant.primary_domain ableiten (`https://portal.<domain>`).
+        if ((!d.portal_url || !d.portal_url.trim()) && resolvedTenantId) {
+          const { data: tRow } = await supabaseAdmin
+            .from("tenants")
+            .select("primary_domain, domain")
+            .eq("id", resolvedTenantId)
+            .maybeSingle();
+          const fallback = portalBaseFromTenant(tRow);
+          if (fallback) {
+            (d as any).portal_url = fallback;
+            console.log("[applications] portal_url_fallback", { requestId, portal_url: fallback });
+          }
+        }
         let ownBookingUrl: string | null = null;
         const scheduleCandidateIds: string[] = [];
         const pushScheduleCandidate = (id?: string | null) => {
