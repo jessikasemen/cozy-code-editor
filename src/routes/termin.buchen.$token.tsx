@@ -152,26 +152,9 @@ function BookingPage() {
                 {s.event_description}
               </div>
             )}
-            <div className="flex items-center justify-between mb-4">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setRangeStart(d => startOfDay(addDays(d, -DAYS_PER_VIEW)))}
-                disabled={rangeStart <= startOfDay(new Date())}
-              >
-                <ChevronLeft className="h-4 w-4 mr-1" /> Zurück
-              </Button>
-              <div className="text-sm font-medium">
-                {format(rangeStart, "d. MMM", { locale: de })} –{" "}
-                {format(addDays(rangeStart, DAYS_PER_VIEW - 1), "d. MMM yyyy", { locale: de })}
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setRangeStart(d => addDays(d, DAYS_PER_VIEW))}
-              >
-                Weiter <ChevronRight className="h-4 w-4 ml-1" />
-              </Button>
+            <div className="mb-4 text-sm font-medium text-muted-foreground">
+              Freie Termine – nächste 4 Wochen ({format(rangeStart, "d. MMM", { locale: de })} –{" "}
+              {format(addDays(rangeStart, DAYS_PER_VIEW - 1), "d. MMM yyyy", { locale: de })})
             </div>
 
             {slotsQ.isLoading ? (
