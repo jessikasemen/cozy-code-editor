@@ -512,24 +512,27 @@ export const Route = createFileRoute("/api/public/applications")({
           }
         };
 
-        // KI-Bewerbungsgespräch hat Vorrang vor Calendly. Bei interview_mode
-        // chat/voice/both → Bewerber landet zuerst im Interview, von dort
-        // wird nach Abschluss zur Terminbuchung weitergeleitet.
+        // Eigenes Buchungssystem hat Vorrang: Ist für die Landing ein aktiver
+        // interner Kalender (booking_mode='internal' + availability_schedule)
+        // konfiguriert, bucht der Bewerber zuerst einen Termin. Der Interview-
+        // Link steckt dann in der Event-Beschreibung des Buchungssystems.
+        // Erst danach greift der direkte Interview-Redirect als Fallback.
         const useInterview = !d.is_test && !isBroker && !isFast && !!interviewMode
           && (interviewMode === "chat" || interviewMode === "voice" || interviewMode === "both")
           && !!d.portal_url && !!d.source_slug;
 
 
-        if (useInterview) {
+        if (ownBookingUrl) {
+          redirect_url = ownBookingUrl;
+        } else if (useInterview) {
           const base = d.portal_url!.replace(/\/+$/, "");
           const qs = new URLSearchParams({
             landing: d.source_slug!,
             portal: base,
           }).toString();
           redirect_url = `${base}/interview/${appId}?${qs}`;
-        } else if (ownBookingUrl) {
-          redirect_url = ownBookingUrl;
         } else if (isBroker) {
+
           const parts = d.full_name.trim().split(/\s+/);
           const firstName = parts[0] ?? "";
           const lastName = parts.slice(1).join(" ");

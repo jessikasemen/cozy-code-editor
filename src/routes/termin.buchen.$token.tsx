@@ -122,7 +122,9 @@ function BookingPage() {
         recruiterName={s.recruiter_name ?? "Ihr Ansprechpartner"}
         applicantEmail={s.applicant_email ?? undefined}
         applicantFirstName={s.applicant_first_name ?? undefined}
+        eventDescription={s.event_description ?? undefined}
       />
+
     );
   }
 
@@ -228,7 +230,9 @@ function BookingConfirmed(props: {
   recruiterName: string;
   applicantEmail?: string;
   applicantFirstName?: string;
+  eventDescription?: string;
 }) {
+
   const start = new Date(props.starts_at);
   const end = new Date(props.ends_at);
   const cancelUrl = typeof window !== "undefined"
@@ -263,6 +267,13 @@ function BookingConfirmed(props: {
               inklusive Kalendereintrag zum 1-Tap-Speichern in Outlook,
               Google oder Apple.
             </p>
+
+            {props.eventDescription && (
+              <div className="rounded-md border border-border bg-muted/40 p-4 text-sm whitespace-pre-wrap leading-relaxed">
+                {props.eventDescription}
+              </div>
+            )}
+
 
             <div className="text-center text-sm">
               <a href={cancelUrl} className="text-primary hover:underline">
