@@ -81,6 +81,7 @@ import { Route as ApiPublicInterviewTestCreateRouteImport } from './routes/api/p
 import { Route as ApiPublicInterviewChatRouteImport } from './routes/api/public/interview-chat'
 import { Route as ApiPublicDomainHealthCronRouteImport } from './routes/api/public/domain-health-cron'
 import { Route as ApiPublicCalendlyWebhookRouteImport } from './routes/api/public/calendly-webhook'
+import { Route as ApiPublicBookingRouteImport } from './routes/api/public/booking'
 import { Route as ApiPublicApplicationsRouteImport } from './routes/api/public/applications'
 import { Route as ApiPublicApplicationLookupRouteImport } from './routes/api/public/application-lookup'
 import { Route as ApiPublicApplicationByTokenRouteImport } from './routes/api/public/application-by-token'
@@ -455,6 +456,11 @@ const ApiPublicCalendlyWebhookRoute =
     path: '/api/public/calendly-webhook',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPublicBookingRoute = ApiPublicBookingRouteImport.update({
+  id: '/api/public/booking',
+  path: '/api/public/booking',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicApplicationsRoute = ApiPublicApplicationsRouteImport.update({
   id: '/api/public/applications',
   path: '/api/public/applications',
@@ -574,6 +580,7 @@ export interface FileRoutesByFullPath {
   '/api/public/application-by-token': typeof ApiPublicApplicationByTokenRoute
   '/api/public/application-lookup': typeof ApiPublicApplicationLookupRoute
   '/api/public/applications': typeof ApiPublicApplicationsRoute
+  '/api/public/booking': typeof ApiPublicBookingRoute
   '/api/public/calendly-webhook': typeof ApiPublicCalendlyWebhookRoute
   '/api/public/domain-health-cron': typeof ApiPublicDomainHealthCronRoute
   '/api/public/interview-chat': typeof ApiPublicInterviewChatRoute
@@ -655,6 +662,7 @@ export interface FileRoutesByTo {
   '/api/public/application-by-token': typeof ApiPublicApplicationByTokenRoute
   '/api/public/application-lookup': typeof ApiPublicApplicationLookupRoute
   '/api/public/applications': typeof ApiPublicApplicationsRoute
+  '/api/public/booking': typeof ApiPublicBookingRoute
   '/api/public/calendly-webhook': typeof ApiPublicCalendlyWebhookRoute
   '/api/public/domain-health-cron': typeof ApiPublicDomainHealthCronRoute
   '/api/public/interview-chat': typeof ApiPublicInterviewChatRoute
@@ -739,6 +747,7 @@ export interface FileRoutesById {
   '/api/public/application-by-token': typeof ApiPublicApplicationByTokenRoute
   '/api/public/application-lookup': typeof ApiPublicApplicationLookupRoute
   '/api/public/applications': typeof ApiPublicApplicationsRoute
+  '/api/public/booking': typeof ApiPublicBookingRoute
   '/api/public/calendly-webhook': typeof ApiPublicCalendlyWebhookRoute
   '/api/public/domain-health-cron': typeof ApiPublicDomainHealthCronRoute
   '/api/public/interview-chat': typeof ApiPublicInterviewChatRoute
@@ -823,6 +832,7 @@ export interface FileRouteTypes {
     | '/api/public/application-by-token'
     | '/api/public/application-lookup'
     | '/api/public/applications'
+    | '/api/public/booking'
     | '/api/public/calendly-webhook'
     | '/api/public/domain-health-cron'
     | '/api/public/interview-chat'
@@ -904,6 +914,7 @@ export interface FileRouteTypes {
     | '/api/public/application-by-token'
     | '/api/public/application-lookup'
     | '/api/public/applications'
+    | '/api/public/booking'
     | '/api/public/calendly-webhook'
     | '/api/public/domain-health-cron'
     | '/api/public/interview-chat'
@@ -987,6 +998,7 @@ export interface FileRouteTypes {
     | '/api/public/application-by-token'
     | '/api/public/application-lookup'
     | '/api/public/applications'
+    | '/api/public/booking'
     | '/api/public/calendly-webhook'
     | '/api/public/domain-health-cron'
     | '/api/public/interview-chat'
@@ -1023,6 +1035,7 @@ export interface RootRouteChildren {
   ApiPublicApplicationByTokenRoute: typeof ApiPublicApplicationByTokenRoute
   ApiPublicApplicationLookupRoute: typeof ApiPublicApplicationLookupRoute
   ApiPublicApplicationsRoute: typeof ApiPublicApplicationsRoute
+  ApiPublicBookingRoute: typeof ApiPublicBookingRoute
   ApiPublicCalendlyWebhookRoute: typeof ApiPublicCalendlyWebhookRoute
   ApiPublicDomainHealthCronRoute: typeof ApiPublicDomainHealthCronRoute
   ApiPublicInterviewChatRoute: typeof ApiPublicInterviewChatRoute
@@ -1543,6 +1556,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicCalendlyWebhookRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/booking': {
+      id: '/api/public/booking'
+      path: '/api/public/booking'
+      fullPath: '/api/public/booking'
+      preLoaderRoute: typeof ApiPublicBookingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/applications': {
       id: '/api/public/applications'
       path: '/api/public/applications'
@@ -1767,6 +1787,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPublicApplicationByTokenRoute: ApiPublicApplicationByTokenRoute,
   ApiPublicApplicationLookupRoute: ApiPublicApplicationLookupRoute,
   ApiPublicApplicationsRoute: ApiPublicApplicationsRoute,
+  ApiPublicBookingRoute: ApiPublicBookingRoute,
   ApiPublicCalendlyWebhookRoute: ApiPublicCalendlyWebhookRoute,
   ApiPublicDomainHealthCronRoute: ApiPublicDomainHealthCronRoute,
   ApiPublicInterviewChatRoute: ApiPublicInterviewChatRoute,

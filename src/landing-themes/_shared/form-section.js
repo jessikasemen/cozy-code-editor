@@ -1,58 +1,246 @@
-/* Shared inline application form handler + success modal. */
+/* Shared inline application form handler + success modal + Inline-Terminwahl. */
 (function(){
   function fmtWa(num){var d=String(num||'').replace(/[^0-9]/g,'');if(!d)return '';return d.length>4?'+'+d.slice(0,2)+' '+d.slice(2,5)+' '+d.slice(5):'+'+d;}
   function spamHintBox(emailStatus){
     var s=document.createElement('div');
     var failed=emailStatus&&emailStatus.status==='failed';
     var skipped=emailStatus&&emailStatus.status==='skipped';
-    s.style.cssText='margin:14px 0 18px;padding:14px 16px;background:'+(failed?'#fee2e2':skipped?'#f1f5f9':'#fef3c7')+';border-left:4px solid '+(failed?'#ef4444':skipped?'#94a3b8':'#f59e0b')+';border-radius:8px;color:'+(failed?'#7f1d1d':skipped?'#334155':'#78350f')+';font-size:13.5px;line-height:1.55;text-align:left;';
+    s.style.cssText='margin:14px 0 4px;padding:14px 16px;background:'+(failed?'#fee2e2':skipped?'#f1f5f9':'#fef3c7')+';border-left:4px solid '+(failed?'#ef4444':skipped?'#94a3b8':'#f59e0b')+';border-radius:8px;color:'+(failed?'#7f1d1d':skipped?'#334155':'#78350f')+';font-size:13.5px;line-height:1.55;text-align:left;';
     s.innerHTML=failed
-      ? 'Ihre Bewerbung ist eingegangen. Die Bestätigungs-E-Mail konnte gerade nicht automatisch versendet werden – nutzen Sie bitte den angezeigten Button oder wir melden uns direkt bei Ihnen.'
+      ? 'Ihre Bewerbung ist eingegangen. Die Bestätigungs-E-Mail konnte gerade nicht automatisch versendet werden – wir melden uns direkt bei Ihnen.'
       : skipped
         ? 'Ihre Bewerbung ist eingegangen. Falls Sie sich bereits beworben haben, verwenden wir Ihre bestehende Anfrage weiter.'
         : '💡 <strong>Wichtig:</strong> Falls Sie eine E-Mail erwarten, prüfen Sie bitte auch Ihren <strong>Spam-Ordner</strong> und markieren Sie uns als „Kein Spam".';
     return s;
   }
-  function ctaMeta(url){
-    // Label + Sub-Text passend zum Redirect-Typ, damit Vermittlung, KI-Interview
-    // und eigenes Buchungssystem immer einen klaren Button zeigen.
-    if(!url) return null;
-    if(/\/buchen\//.test(url))       return {label:'Jetzt Termin auswählen  →', sub:'Wählen Sie jetzt Ihren Wunschtermin für das kurze Erstgespräch.'};
-    if(/\/interview\//.test(url))    return {label:'Bewerbungsgespräch starten  →', sub:'Starten Sie direkt Ihr kurzes KI-Vorgespräch.'};
-    if(/\/bewerbung\/verbinden/.test(url)) return {label:'Weiter zur Terminwahl  →', sub:'Im nächsten Schritt wählen Sie Ihren Wunschtermin.'};
-    return {label:'Jetzt weiter  →', sub:'Klicken Sie auf den Button, um fortzufahren.'};
+
+  // ── API-Base aus PORTAL_API ableiten ────────────────────────────────────
+  function apiBase(){
+    var p=String(window.PORTAL_API||'');
+    // PORTAL_API zeigt auf .../api/public/applications → wir wollen die Origin.
+    var m=p.match(/^(https?:\/\/[^/]+)/);
+    return m ? m[1] : '';
   }
-  function openBookingOverlay(url){
-    if(!url){return;}
-    var existing=document.getElementById('lv-booking-overlay');
-    if(existing){existing.remove();}
-    var ov=document.createElement('div');ov.id='lv-booking-overlay';
-    ov.setAttribute('role','dialog');ov.setAttribute('aria-modal','true');
-    ov.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.7);display:flex;align-items:center;justify-content:center;z-index:10000;padding:16px;backdrop-filter:blur(3px);';
-    var frameBox=document.createElement('div');
-    frameBox.style.cssText='background:#fff;width:100%;max-width:760px;height:90vh;max-height:900px;border-radius:14px;box-shadow:0 20px 60px -10px rgba(0,0,0,.45);position:relative;overflow:hidden;display:flex;flex-direction:column;';
-    var bar=document.createElement('div');
-    bar.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid #e2e8f0;background:#f8fafc;';
-    var title=document.createElement('div');title.textContent='Termin auswählen';
-    title.style.cssText='font-size:14px;font-weight:600;color:#0f172a;';
-    var closeBtn=document.createElement('button');closeBtn.type='button';closeBtn.innerHTML='&times;';
-    closeBtn.setAttribute('aria-label','Schließen');
-    closeBtn.style.cssText='background:none;border:0;font-size:26px;line-height:1;cursor:pointer;color:#64748b;padding:0 4px;';
-    closeBtn.onclick=function(){ov.remove();};
-    bar.appendChild(title);bar.appendChild(closeBtn);
-    var iframe=document.createElement('iframe');
-    iframe.src=url;iframe.title='Terminauswahl';
-    iframe.setAttribute('allow','clipboard-write');
-    iframe.style.cssText='flex:1;width:100%;border:0;background:#fff;';
-    frameBox.appendChild(bar);frameBox.appendChild(iframe);
-    ov.appendChild(frameBox);
-    ov.addEventListener('click',function(e){if(e.target===ov)ov.remove();});
-    document.body.appendChild(ov);
+  function bookingUrl(action, params){
+    var qs='action='+encodeURIComponent(action);
+    if(params){for(var k in params){if(params[k]!=null)qs+='&'+encodeURIComponent(k)+'='+encodeURIComponent(params[k]);}}
+    return apiBase()+'/api/public/booking?'+qs;
   }
+
+  // ── Datum-/Zeit-Formatter ───────────────────────────────────────────────
+  var TZ = (function(){try{return Intl.DateTimeFormat().resolvedOptions().timeZone||'Europe/Berlin';}catch(_){return 'Europe/Berlin';}})();
+  var fmtDay = new Intl.DateTimeFormat('de-DE',{weekday:'short',day:'2-digit',month:'2-digit'});
+  var fmtDayLong = new Intl.DateTimeFormat('de-DE',{weekday:'long',day:'2-digit',month:'long',year:'numeric'});
+  var fmtTime = new Intl.DateTimeFormat('de-DE',{hour:'2-digit',minute:'2-digit'});
+  function toYMD(d){var y=d.getFullYear();var m=String(d.getMonth()+1).padStart(2,'0');var dd=String(d.getDate()).padStart(2,'0');return y+'-'+m+'-'+dd;}
+  function addDays(d,n){var x=new Date(d);x.setDate(x.getDate()+n);return x;}
+  function startOfDay(d){var x=new Date(d);x.setHours(0,0,0,0);return x;}
+
+  // ── Inline-Booking-Renderer ─────────────────────────────────────────────
+  function renderBookingInline(container, token, opts){
+    opts=opts||{};
+    container.innerHTML='';
+    container.style.cssText='margin-top:18px;padding:22px;background:#fff;border:1px solid #e2e8f0;border-radius:14px;box-shadow:0 8px 30px -12px rgba(15,23,42,.15);color:#0f172a;font-family:inherit;';
+
+    var state={schedule:null, weekStart:startOfDay(new Date()), selectedDay:null, slotsByDay:{}, loadingSlots:false};
+
+    var header=document.createElement('div');
+    var h=document.createElement('h3');h.style.cssText='margin:0 0 6px;font-size:20px;font-weight:700;';h.textContent='Termin auswählen';
+    var sub=document.createElement('p');sub.style.cssText='margin:0 0 4px;color:#475569;font-size:14px;line-height:1.5;';
+    sub.textContent='Wir laden Ihren Kalender …';
+    var hint=document.createElement('p');hint.style.cssText='margin:0 0 14px;color:#64748b;font-size:12.5px;';
+    hint.textContent='Die Zugangsdaten für das Gespräch erhalten Sie im Anschluss per E-Mail.';
+    header.appendChild(h);header.appendChild(sub);header.appendChild(hint);
+    container.appendChild(header);
+
+    var body=document.createElement('div');container.appendChild(body);
+    var errBox=document.createElement('div');errBox.style.cssText='display:none;margin-top:10px;padding:10px 12px;background:#fee2e2;border-left:4px solid #ef4444;color:#7f1d1d;border-radius:6px;font-size:13px;';
+    container.appendChild(errBox);
+    function showError(msg){errBox.style.display='block';errBox.textContent=msg;}
+    function clearError(){errBox.style.display='none';errBox.textContent='';}
+
+    function renderWeek(){
+      clearError();
+      body.innerHTML='';
+      var sched=state.schedule;
+      var maxDate = addDays(startOfDay(new Date()), Math.max(1, sched.max_days_ahead||30));
+
+      // Woche-Navigation
+      var nav=document.createElement('div');nav.style.cssText='display:flex;align-items:center;justify-content:space-between;margin:6px 0 12px;gap:8px;';
+      var prev=document.createElement('button');prev.type='button';prev.textContent='← Vorherige Woche';
+      var next=document.createElement('button');next.type='button';next.textContent='Nächste Woche →';
+      var navBtnCss='background:#f1f5f9;border:1px solid #cbd5e1;color:#0f172a;padding:8px 12px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:500;';
+      prev.style.cssText=navBtnCss;next.style.cssText=navBtnCss;
+      var today=startOfDay(new Date());
+      if(state.weekStart<=today){prev.disabled=true;prev.style.opacity='.4';prev.style.cursor='not-allowed';}
+      if(addDays(state.weekStart,7)>maxDate){next.disabled=true;next.style.opacity='.4';next.style.cursor='not-allowed';}
+      prev.onclick=function(){state.weekStart=addDays(state.weekStart,-7);state.selectedDay=null;loadWeek();};
+      next.onclick=function(){state.weekStart=addDays(state.weekStart,7);state.selectedDay=null;loadWeek();};
+      var label=document.createElement('div');label.style.cssText='font-size:13.5px;color:#475569;font-weight:500;';
+      label.textContent=fmtDay.format(state.weekStart)+' – '+fmtDay.format(addDays(state.weekStart,6));
+      nav.appendChild(prev);nav.appendChild(label);nav.appendChild(next);
+      body.appendChild(nav);
+
+      // Tage-Grid
+      var grid=document.createElement('div');grid.style.cssText='display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-bottom:14px;';
+      for(var i=0;i<7;i++){
+        (function(i){
+          var d=addDays(state.weekStart,i);
+          var ymd=toYMD(d);
+          var slots=state.slotsByDay[ymd]||[];
+          var disabled = d<today || d>maxDate || slots.length===0;
+          var b=document.createElement('button');b.type='button';
+          var active = state.selectedDay===ymd;
+          b.style.cssText='padding:10px 4px;border-radius:10px;border:1.5px solid '+(active?'#0f172a':'#e2e8f0')+';background:'+(active?'#0f172a':disabled?'#f8fafc':'#fff')+';color:'+(active?'#fff':disabled?'#cbd5e1':'#0f172a')+';cursor:'+(disabled?'not-allowed':'pointer')+';font-size:12px;font-weight:600;text-align:center;line-height:1.3;';
+          var wd=d.toLocaleDateString('de-DE',{weekday:'short'});
+          b.innerHTML='<div style="font-size:11px;opacity:.7;">'+wd+'</div><div style="font-size:15px;margin-top:2px;">'+String(d.getDate()).padStart(2,'0')+'.'+String(d.getMonth()+1).padStart(2,'0')+'</div><div style="font-size:10px;margin-top:3px;opacity:.75;">'+(slots.length? slots.length+' frei':state.loadingSlots?'…':'—')+'</div>';
+          if(!disabled){b.onclick=function(){state.selectedDay=ymd;renderWeek();};}
+          grid.appendChild(b);
+        })(i);
+      }
+      body.appendChild(grid);
+
+      // Zeit-Slots des ausgewählten Tages
+      var slotBox=document.createElement('div');slotBox.style.cssText='min-height:60px;';
+      if(state.loadingSlots){
+        slotBox.innerHTML='<div style="text-align:center;color:#64748b;padding:20px;font-size:13.5px;">Lade freie Zeiten …</div>';
+      } else if(!state.selectedDay){
+        slotBox.innerHTML='<div style="text-align:center;color:#64748b;padding:16px;font-size:13.5px;">Bitte wählen Sie einen Tag aus.</div>';
+      } else {
+        var slots=state.slotsByDay[state.selectedDay]||[];
+        if(slots.length===0){
+          slotBox.innerHTML='<div style="text-align:center;color:#64748b;padding:16px;font-size:13.5px;">An diesem Tag sind keine Termine mehr frei.</div>';
+        } else {
+          var dLabel=document.createElement('div');dLabel.style.cssText='font-size:13.5px;font-weight:600;color:#0f172a;margin-bottom:8px;';
+          dLabel.textContent=fmtDayLong.format(new Date(state.selectedDay+'T12:00:00'));
+          slotBox.appendChild(dLabel);
+          var sg=document.createElement('div');sg.style.cssText='display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px;';
+          slots.forEach(function(s){
+            var btn=document.createElement('button');btn.type='button';
+            btn.textContent=fmtTime.format(new Date(s.start));
+            btn.style.cssText='padding:10px;border:1.5px solid #0f172a;background:#fff;color:#0f172a;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;transition:all .12s;';
+            btn.onmouseenter=function(){btn.style.background='#0f172a';btn.style.color='#fff';};
+            btn.onmouseleave=function(){btn.style.background='#fff';btn.style.color='#0f172a';};
+            btn.onclick=function(){bookSlot(s);};
+            sg.appendChild(btn);
+          });
+          slotBox.appendChild(sg);
+        }
+      }
+      body.appendChild(slotBox);
+    }
+
+    function loadWeek(){
+      state.loadingSlots=true;renderWeek();
+      var from=toYMD(state.weekStart);
+      var to=toYMD(addDays(state.weekStart,6));
+      fetch(bookingUrl('slots',{schedule_id:state.schedule.schedule_id, from:from, to:to}))
+        .then(function(r){return r.json();})
+        .then(function(res){
+          state.loadingSlots=false;
+          if(!res.ok){showError('Slots konnten nicht geladen werden.');return;}
+          var byDay={};(res.slots||[]).forEach(function(s){
+            var ymd=toYMD(new Date(s.start));
+            (byDay[ymd]=byDay[ymd]||[]).push(s);
+          });
+          state.slotsByDay=byDay;
+          // ersten Tag mit Slots vorwählen, wenn nichts gewählt ist
+          if(!state.selectedDay){
+            for(var i=0;i<7;i++){var y=toYMD(addDays(state.weekStart,i));if((byDay[y]||[]).length){state.selectedDay=y;break;}}
+          }
+          renderWeek();
+        })
+        .catch(function(){state.loadingSlots=false;showError('Netzwerkfehler beim Laden der Slots.');});
+    }
+
+    function bookSlot(s){
+      clearError();
+      body.innerHTML='<div style="text-align:center;color:#64748b;padding:30px;font-size:14px;">Termin wird gebucht …</div>';
+      fetch(bookingUrl('book'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:token, starts_at:s.start, applicant_timezone:TZ})})
+        .then(function(r){return r.json().then(function(j){return {status:r.status, body:j};});})
+        .then(function(res){
+          if(!res.body||!res.body.ok){
+            if(res.status===409){
+              showError('Dieser Termin wurde gerade schon vergeben. Bitte wählen Sie einen anderen.');
+              loadWeek();return;
+            }
+            showError('Buchung fehlgeschlagen. Bitte versuchen Sie es erneut.');
+            renderWeek();return;
+          }
+          renderConfirmed(res.body);
+        })
+        .catch(function(){showError('Netzwerkfehler bei der Buchung.');renderWeek();});
+    }
+
+    function renderConfirmed(bk){
+      container.innerHTML='';
+      var wrap=document.createElement('div');wrap.style.cssText='text-align:center;padding:12px 4px;';
+      var chk=document.createElement('div');chk.style.cssText='width:56px;height:56px;border-radius:50%;background:#22c55e;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;';
+      chk.innerHTML='<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+      var h2=document.createElement('h3');h2.style.cssText='margin:0 0 8px;font-size:22px;font-weight:700;';h2.textContent='Termin bestätigt';
+      var start=new Date(bk.starts_at), end=new Date(bk.ends_at);
+      var when=document.createElement('p');when.style.cssText='margin:0 0 6px;font-size:16px;color:#0f172a;font-weight:600;';
+      when.textContent=fmtDayLong.format(start)+' · '+fmtTime.format(start)+'–'+fmtTime.format(end)+' Uhr';
+      var mail=document.createElement('p');mail.style.cssText='margin:6px 0 14px;color:#475569;font-size:13.5px;';
+      mail.textContent='Sie erhalten in Kürze eine Bestätigungs-E-Mail mit allen Details.';
+      wrap.appendChild(chk);wrap.appendChild(h2);wrap.appendChild(when);wrap.appendChild(mail);
+
+      if(state.schedule && state.schedule.event_description){
+        var desc=document.createElement('div');
+        desc.style.cssText='margin:12px auto 0;padding:16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;text-align:left;font-size:13.5px;line-height:1.55;color:#0f172a;max-width:560px;';
+        // event_description kann HTML enthalten (aus dem Portal-Editor).
+        desc.innerHTML=state.schedule.event_description;
+        wrap.appendChild(desc);
+      }
+      container.appendChild(wrap);
+    }
+
+    // ── Start: Schedule laden ────────────────────────────────────────────
+    fetch(bookingUrl('schedule',{token:token}))
+      .then(function(r){return r.json().then(function(j){return {status:r.status, body:j};});})
+      .then(function(res){
+        if(!res.body||!res.body.ok){
+          sub.textContent='';
+          if(res.status===404){showError('Ihr Buchungslink ist ungültig oder abgelaufen. Bitte kontaktieren Sie uns.');}
+          else{showError('Terminwahl konnte nicht geladen werden.');}
+          return;
+        }
+        state.schedule=res.body;
+        var greet='Wählen Sie Ihren Wunschtermin für das kurze Erstgespräch.';
+        if(res.body.applicant_first_name){
+          greet='Hallo '+res.body.applicant_first_name+', wählen Sie Ihren Wunschtermin';
+          if(res.body.recruiter_name) greet+=' mit '+res.body.recruiter_name;
+          greet+='.';
+        }
+        sub.textContent=greet;
+        loadWeek();
+      })
+      .catch(function(){sub.textContent='';showError('Netzwerkfehler beim Laden des Kalenders.');});
+  }
+
   function showModal(opts){
     opts=opts||{};var isFast=!!opts.fast;var broker=opts.broker||null;var wa=String(opts.whatsapp||'').replace(/[^0-9]/g,'');
     var redirectUrl=opts.redirectUrl||'';var emailStatus=opts.emailStatus||null;
-    var meta = !isFast && !broker ? ctaMeta(redirectUrl) : null;
+    var isBooking=/\/buchen\//.test(redirectUrl);
+
+    // NEU: Bei Buchung kein Modal — direkt inline unter dem Formular rendern.
+    if(isBooking){
+      var tokenMatch=redirectUrl.match(/\/buchen\/([^/?#]+)/);
+      var token=tokenMatch?tokenMatch[1]:null;
+      if(token){
+        var host=document.getElementById('booking-inline-host');
+        if(!host){
+          host=document.createElement('div');host.id='booking-inline-host';
+          var form=document.getElementById('application-form');
+          (form&&form.parentNode?form.parentNode:document.body).insertBefore(host, form?form.nextSibling:null);
+        }
+        host.scrollIntoView({behavior:'smooth',block:'start'});
+        renderBookingInline(host, token, {emailStatus:emailStatus});
+        return;
+      }
+      // Fallback: alte Modal-Variante mit Fenster-Link
+    }
+
     var ov=document.createElement('div');ov.setAttribute('role','dialog');ov.setAttribute('aria-modal','true');
     ov.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;z-index:9999;padding:16px;backdrop-filter:blur(2px);';
     var box=document.createElement('div');
@@ -66,30 +254,7 @@
     var p=document.createElement('p');p.style.cssText='margin:0 0 16px;color:#475569;font-size:15px;line-height:1.55;';
     box.appendChild(cls);box.appendChild(chk);box.appendChild(h);box.appendChild(p);
 
-    if(meta){
-      // Vermittlung / eigenes Buchungssystem / KI-Interview: immer großer CTA.
-      h.textContent='✅ Bewerbung eingegangen';
-      p.textContent=meta.sub;
-      var isBooking=/\/buchen\//.test(redirectUrl);
-      var cta=document.createElement(isBooking?'button':'a');
-      if(isBooking){cta.type='button';}else{cta.href=redirectUrl;}
-      cta.textContent=meta.label;
-      cta.style.cssText='display:block;width:100%;background:#0f172a;color:#fff;border:0;text-align:center;text-decoration:none;font-weight:600;padding:16px 24px;border-radius:10px;font-size:16px;margin-bottom:6px;box-sizing:border-box;cursor:pointer;';
-      if(isBooking){cta.onclick=function(){openBookingOverlay(redirectUrl);};}
-      box.appendChild(cta);
-      var sub=document.createElement('p');sub.style.cssText='margin:8px 0 4px;font-size:13px;color:#64748b;';
-      sub.textContent=isBooking
-        ? 'Nach Auswahl Ihres Wunschtermins erhalten Sie eine E-Mail mit allen Details (u. a. wo/wie das Gespräch stattfindet).'
-        : (emailStatus&&emailStatus.status==='sent'?'Sie erhalten zusätzlich eine E-Mail als Backup.':'Falls keine E-Mail ankommt, können Sie direkt über diesen Button fortfahren.');
-      box.appendChild(sub);
-      if(isBooking){
-        var fb=document.createElement('a');fb.href=redirectUrl;fb.target='_blank';fb.rel='noopener';
-        fb.textContent='Fenster lädt nicht? In neuem Tab öffnen →';
-        fb.style.cssText='display:block;margin:6px 0 0;font-size:12px;color:#2563eb;text-decoration:none;';
-        box.appendChild(fb);
-      }
-      box.appendChild(spamHintBox(emailStatus));
-    } else if(broker){
+    if(broker){
       h.textContent=broker.intro_headline||'✅ Bewerbung eingegangen';
       p.innerHTML=(broker.intro_subline)||(emailStatus&&emailStatus.status==='sent'?'Sie erhalten zusätzlich eine E-Mail mit Ihrem persönlichen Termin-Link.':'Ihr persönlicher Termin-Link ist direkt hier verfügbar.');
       var pc=document.createElement('div');pc.style.cssText='background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:16px;margin:0 0 18px;';
@@ -108,6 +273,14 @@
         var ri=document.createElement('p');ri.style.cssText='margin:0 0 12px;font-size:13px;color:#64748b;';var sec=10;ri.textContent='Automatische Weiterleitung in '+sec+' Sekunden …';
         box.appendChild(gn);box.appendChild(ri);var go=function(){window.location.href=redirectUrl;};gn.onclick=go;
         var t=setInterval(function(){sec-=1;if(sec<=0){clearInterval(t);go();return;}ri.textContent='Automatische Weiterleitung in '+sec+' Sekunden …';},1000);}
+      box.appendChild(spamHintBox(emailStatus));
+    } else if(redirectUrl){
+      // KI-Interview / sonstige Redirects
+      h.textContent='✅ Bewerbung eingegangen';
+      p.textContent='Starten Sie direkt Ihr kurzes Vorgespräch.';
+      var cta=document.createElement('a');cta.href=redirectUrl;cta.textContent='Weiter  →';
+      cta.style.cssText='display:block;width:100%;background:#0f172a;color:#fff;text-align:center;text-decoration:none;font-weight:600;padding:16px 24px;border-radius:10px;font-size:16px;margin-bottom:6px;box-sizing:border-box;';
+      box.appendChild(cta);
       box.appendChild(spamHintBox(emailStatus));
     } else {
       h.textContent='✅ Bewerbung eingegangen';
