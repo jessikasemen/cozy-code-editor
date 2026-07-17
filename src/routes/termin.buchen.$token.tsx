@@ -122,7 +122,9 @@ function BookingPage() {
         recruiterName={s.recruiter_name ?? "Ihr Ansprechpartner"}
         applicantEmail={s.applicant_email ?? undefined}
         applicantFirstName={s.applicant_first_name ?? undefined}
+        eventDescription={s.event_description ?? undefined}
       />
+
     );
   }
 
