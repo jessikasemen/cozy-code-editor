@@ -52,24 +52,29 @@ GRANT ALL ON public.landing_pages TO service_role;
 ALTER TABLE public.landing_pages ENABLE ROW LEVEL SECURITY;
 
 -- Anon (Server 1 / Renderer): nur veröffentlichte Landings lesen.
+DROP POLICY IF EXISTS "public read published" ON public.landing_pages;
 CREATE POLICY "public read published"
   ON public.landing_pages FOR SELECT TO anon
   USING (is_published);
 
 -- Authenticated Admins: alles
+DROP POLICY IF EXISTS "admins read all" ON public.landing_pages;
 CREATE POLICY "admins read all"
   ON public.landing_pages FOR SELECT TO authenticated
   USING (public.has_role(auth.uid(), 'admin'));
 
+DROP POLICY IF EXISTS "admins insert" ON public.landing_pages;
 CREATE POLICY "admins insert"
   ON public.landing_pages FOR INSERT TO authenticated
   WITH CHECK (public.has_role(auth.uid(), 'admin'));
 
+DROP POLICY IF EXISTS "admins update" ON public.landing_pages;
 CREATE POLICY "admins update"
   ON public.landing_pages FOR UPDATE TO authenticated
   USING (public.has_role(auth.uid(), 'admin'))
   WITH CHECK (public.has_role(auth.uid(), 'admin'));
 
+DROP POLICY IF EXISTS "admins delete" ON public.landing_pages;
 CREATE POLICY "admins delete"
   ON public.landing_pages FOR DELETE TO authenticated
   USING (public.has_role(auth.uid(), 'admin'));

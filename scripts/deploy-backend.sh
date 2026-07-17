@@ -119,7 +119,9 @@ docker exec "\$DB_CT" pg_dump -U postgres -d postgres | gzip > "\$BACKUP"
 echo "\$NEW" | while read sql; do
   name=\$(basename "\$sql")
   echo "  · apply: \$name"
-  docker exec -i "\$DB_CT" psql -U postgres -d postgres -v ON_ERROR_STOP=1 < "\$sql"
+  # supabase_admin ist Owner aller public.* Objekte in Self-Hosted Supabase.
+  # postgres hat oft nur eingeschränkte Rechte → "must be owner of ..."-Fehler.
+  docker exec -i "\$DB_CT" psql -U supabase_admin -d postgres -v ON_ERROR_STOP=1 < "\$sql"
   echo "\$name" >> "\$STATE"
   echo "    ✓ \$name"
 done
