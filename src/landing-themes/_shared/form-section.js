@@ -42,7 +42,8 @@
     container.innerHTML='';
     container.style.cssText='margin-top:18px;padding:22px;background:#fff;border:1px solid #e2e8f0;border-radius:14px;box-shadow:0 8px 30px -12px rgba(15,23,42,.15);color:#0f172a;font-family:inherit;';
 
-    var state={schedule:null, weekStart:startOfDay(new Date()), selectedDay:null, slotsByDay:{}, loadingSlots:false};
+    var RANGE_DAYS = 28;
+    var state={schedule:null, rangeStart:startOfDay(new Date()), selectedDay:null, slotsByDay:{}, loadingSlots:false};
 
     var header=document.createElement('div');
     var h=document.createElement('h3');h.style.cssText='margin:0 0 6px;font-size:20px;font-weight:700;';h.textContent='Termin auswählen';
@@ -59,42 +60,30 @@
     function showError(msg){errBox.style.display='block';errBox.textContent=msg;}
     function clearError(){errBox.style.display='none';errBox.textContent='';}
 
-    function renderWeek(){
+    function renderRange(){
       clearError();
       body.innerHTML='';
-      var sched=state.schedule;
-      var maxDate = addDays(startOfDay(new Date()), Math.max(1, sched.max_days_ahead||30));
-
-      // Woche-Navigation
-      var nav=document.createElement('div');nav.style.cssText='display:flex;align-items:center;justify-content:space-between;margin:6px 0 12px;gap:8px;';
-      var prev=document.createElement('button');prev.type='button';prev.textContent='← Vorherige Woche';
-      var next=document.createElement('button');next.type='button';next.textContent='Nächste Woche →';
-      var navBtnCss='background:#f1f5f9;border:1px solid #cbd5e1;color:#0f172a;padding:8px 12px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:500;';
-      prev.style.cssText=navBtnCss;next.style.cssText=navBtnCss;
       var today=startOfDay(new Date());
-      if(state.weekStart<=today){prev.disabled=true;prev.style.opacity='.4';prev.style.cursor='not-allowed';}
-      if(addDays(state.weekStart,7)>maxDate){next.disabled=true;next.style.opacity='.4';next.style.cursor='not-allowed';}
-      prev.onclick=function(){state.weekStart=addDays(state.weekStart,-7);state.selectedDay=null;loadWeek();};
-      next.onclick=function(){state.weekStart=addDays(state.weekStart,7);state.selectedDay=null;loadWeek();};
-      var label=document.createElement('div');label.style.cssText='font-size:13.5px;color:#475569;font-weight:500;';
-      label.textContent=fmtDay.format(state.weekStart)+' – '+fmtDay.format(addDays(state.weekStart,6));
-      nav.appendChild(prev);nav.appendChild(label);nav.appendChild(next);
-      body.appendChild(nav);
 
-      // Tage-Grid
-      var grid=document.createElement('div');grid.style.cssText='display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-bottom:14px;';
-      for(var i=0;i<7;i++){
+      var title=document.createElement('div');
+      title.style.cssText='font-size:13.5px;color:#475569;font-weight:500;margin:4px 0 10px;';
+      title.textContent='Freie Termine – nächste 4 Wochen ('+fmtDay.format(state.rangeStart)+' – '+fmtDay.format(addDays(state.rangeStart,RANGE_DAYS-1))+')';
+      body.appendChild(title);
+
+      // 28 Tage: 4 Reihen × 7 Spalten
+      var grid=document.createElement('div');grid.style.cssText='display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;margin-bottom:14px;';
+      for(var i=0;i<RANGE_DAYS;i++){
         (function(i){
-          var d=addDays(state.weekStart,i);
+          var d=addDays(state.rangeStart,i);
           var ymd=toYMD(d);
           var slots=state.slotsByDay[ymd]||[];
-          var disabled = d<today || d>maxDate || slots.length===0;
+          var disabled = d<today || slots.length===0;
           var b=document.createElement('button');b.type='button';
           var active = state.selectedDay===ymd;
-          b.style.cssText='padding:10px 4px;border-radius:10px;border:1.5px solid '+(active?'#0f172a':'#e2e8f0')+';background:'+(active?'#0f172a':disabled?'#f8fafc':'#fff')+';color:'+(active?'#fff':disabled?'#cbd5e1':'#0f172a')+';cursor:'+(disabled?'not-allowed':'pointer')+';font-size:12px;font-weight:600;text-align:center;line-height:1.3;';
+          b.style.cssText='padding:8px 2px;border-radius:10px;border:1.5px solid '+(active?'#0f172a':'#e2e8f0')+';background:'+(active?'#0f172a':disabled?'#f8fafc':'#fff')+';color:'+(active?'#fff':disabled?'#cbd5e1':'#0f172a')+';cursor:'+(disabled?'not-allowed':'pointer')+';font-size:12px;font-weight:600;text-align:center;line-height:1.25;';
           var wd=d.toLocaleDateString('de-DE',{weekday:'short'});
-          b.innerHTML='<div style="font-size:11px;opacity:.7;">'+wd+'</div><div style="font-size:15px;margin-top:2px;">'+String(d.getDate()).padStart(2,'0')+'.'+String(d.getMonth()+1).padStart(2,'0')+'</div><div style="font-size:10px;margin-top:3px;opacity:.75;">'+(slots.length? slots.length+' frei':state.loadingSlots?'…':'—')+'</div>';
-          if(!disabled){b.onclick=function(){state.selectedDay=ymd;renderWeek();};}
+          b.innerHTML='<div style="font-size:10.5px;opacity:.7;">'+wd+'</div><div style="font-size:14px;margin-top:2px;">'+String(d.getDate()).padStart(2,'0')+'.'+String(d.getMonth()+1).padStart(2,'0')+'</div><div style="font-size:10px;margin-top:2px;opacity:.75;">'+(slots.length? slots.length+' frei':state.loadingSlots?'…':'—')+'</div>';
+          if(!disabled){b.onclick=function(){state.selectedDay=ymd;renderRange();};}
           grid.appendChild(b);
         })(i);
       }
@@ -130,10 +119,10 @@
       body.appendChild(slotBox);
     }
 
-    function loadWeek(){
-      state.loadingSlots=true;renderWeek();
-      var from=toYMD(state.weekStart);
-      var to=toYMD(addDays(state.weekStart,6));
+    function loadRange(){
+      state.loadingSlots=true;renderRange();
+      var from=toYMD(state.rangeStart);
+      var to=toYMD(addDays(state.rangeStart,RANGE_DAYS-1));
       fetch(bookingUrl('slots',{schedule_id:state.schedule.schedule_id, from:from, to:to}))
         .then(function(r){return r.json();})
         .then(function(res){
@@ -144,11 +133,10 @@
             (byDay[ymd]=byDay[ymd]||[]).push(s);
           });
           state.slotsByDay=byDay;
-          // ersten Tag mit Slots vorwählen, wenn nichts gewählt ist
           if(!state.selectedDay){
-            for(var i=0;i<7;i++){var y=toYMD(addDays(state.weekStart,i));if((byDay[y]||[]).length){state.selectedDay=y;break;}}
+            for(var i=0;i<RANGE_DAYS;i++){var y=toYMD(addDays(state.rangeStart,i));if((byDay[y]||[]).length){state.selectedDay=y;break;}}
           }
-          renderWeek();
+          renderRange();
         })
         .catch(function(){state.loadingSlots=false;showError('Netzwerkfehler beim Laden der Slots.');});
     }
