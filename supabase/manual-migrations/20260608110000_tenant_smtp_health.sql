@@ -14,6 +14,11 @@ CREATE TABLE IF NOT EXISTS public.tenant_smtp_health (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- Ownership auf CURRENT_USER (postgres) setzen, falls die Tabelle vorher
+-- von einer anderen Rolle angelegt wurde — sonst schlägt ENABLE RLS mit
+-- "must be owner of table" fehl.
+ALTER TABLE public.tenant_smtp_health OWNER TO CURRENT_USER;
+
 GRANT SELECT ON public.tenant_smtp_health TO authenticated;
 GRANT ALL    ON public.tenant_smtp_health TO service_role;
 
