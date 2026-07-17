@@ -1,54 +1,55 @@
+## Ziel
+Bei einer Bewerbung über die Vermittlungs-Landing `personalservice-gmbh.de` soll im Success-Modal nach „✅ Bewerbung eingegangen" der Button **„Jetzt Termin auswählen"** (eigenes Buchungssystem) erscheinen. Aktuell fehlt er.
 
-## Was ist passiert?
+## Wie der Button entsteht (Code-Fakten)
 
-Der Build ist **erfolgreich** durchgelaufen und das neue Release wurde aktiviert:
+`src/routes/api/public/applications.ts` liefert im POST-Response:
+- `redirect_url` → gesetzt, wenn ein **eigenes** Buchungssystem greift (`/termin/buchen/<magic_token>`)
+- `broker.calendly_url` → gesetzt bei broker+Calendly-Flow
 
-```
-▸ 3/5  Build atomar aktivieren
-  ✓ Release aktiviert: /opt/apps/portal/.releases/20260716-175926
-```
+`src/landing-themes/_shared/form-section.js` zeigt den Button nur, wenn eines von beiden gefüllt ist. Fehlen beide → stiller Text ohne CTA (genau das aktuelle Symptom).
 
-Dann brach der Deploy an Schritt **4/5 „Manual-Migrations prüfen"** ab:
+`redirect_url` fürs eigene Buchungssystem wird nur gebildet, wenn **alle** folgenden Bedingungen erfüllt sind (Zeilen 294–344 in `applications.ts`):
 
-```
-· 20260602000000_tenant_primary_domain.sql → einspielen…
-psql: error: FATAL: Tenant or user not found
-```
+1. `d.is_test = false` und `flow_type ≠ 'fast'`
+2. `d.portal_url` ist im Formular-POST gesetzt (`window.PORTAL_URL` in `form-section.js`)
+3. Für Source-Landing **oder** verlinkte Ziel-Landing existiert eine Zeile in `availability_schedules` mit `active = true`
+4. Genau diese Landing (nicht irgendeine andere) hat `booking_mode = 'internal'` — das wird per `landing_pages!inner(booking_mode).eq('landing_pages.booking_mode','internal')` gefiltert
 
-**Folge:** Schritt 5/5 (`systemctl restart portal.service`) wurde **nicht** ausgeführt. Das Portal läuft also noch mit dem alten Symlink → die neue `form-section.js` ist zwar gebaut, aber nicht live.
+Wichtig: Wenn der Zeitplan auf Landing A liegt, `booking_mode='internal'` aber auf Landing B, matcht nichts.
 
-## Warum der psql-Fehler?
+## Diagnose-Schritte (was ich als Erstes prüfe)
 
-Zwei kombinierte Ursachen:
+1. **Landing-Row lesen** (`landing_pages` where domain oder slug matcht personalservice-gmbh.de):
+   - `flow_type` = `'broker'`?
+   - `booking_mode` = `'internal'`?
+   - `linked_fasttrack_landing_id` = ?
+   - `partner_company_id` = ?
+   - `id`, `slug`
 
-1. **`TARGET_DB_URL` in `.env` ist falsch/veraltet** — `FATAL: Tenant or user not found` ist der klassische Supabase-Pooler-Fehler, wenn der Username (`postgres.<projectref>`) auf ein nicht mehr existierendes Cloud-Projekt zeigt oder das Format falsch ist. Auf `.124` soll dort die self-hosted DB auf `.123` stehen — nicht die alte Lovable-Cloud-URL.
-2. **State-File `.deploy-migrations-applied` ist leer** → das Skript versucht **alle 60+ historischen Migrations** neu einzuspielen, obwohl sie längst in der DB sind. Beim ersten Fehler bricht `set -e` sofort ab.
+2. **`availability_schedules`** where `landing_page_id IN (id, linked_fasttrack_landing_id)` UND `active = true` — mind. ein Treffer?
 
-## Lösung — zwei Schritte
+3. **Wenn Zeitplan auf verlinkter Landing liegt:** hat diese Landing ebenfalls `booking_mode='internal'`? (der Inner-Join filtert auf die Landing des Zeitplans, nicht auf die Source-Landing)
 
-### Schritt 1 — Portal jetzt sofort auf neuen Release umschalten (30 Sek.)
+4. **Server-Logs** von `/api/public/applications` bei einer Testbewerbung: die `has_redirect`/`has_broker`-Log-Zeile zeigt sofort, welcher Zweig griff.
 
-Auf `.124`:
+5. **Live-Formular in der Landing**: `window.PORTAL_URL` und `window.FLOW_TYPE` im DevTools-Console prüfen — falls `PORTAL_URL` leer ist, wird `ownBookingUrl` nie gebildet.
 
-```bash
-systemctl restart portal.service
-systemctl status portal.service --no-pager | head -15
-```
+## Erwartete Root-Causes (Priorität)
 
-Damit ist die neue `form-section.js` mit den Termin-CTAs im Portal-Build aktiv. Dann Landing-Pages neu generieren (Admin → Landing-Generator) — die statischen HTMLs auf dem Landing-Server holen sich dann die neue Datei.
+- **A (wahrscheinlichste)**: `booking_mode` steht nicht auf `internal` — weder auf der Source-Landing noch auf der Landing, an der der aktive Zeitplan hängt. Fix: Landing im Landing-Generator auf „eigenes Buchungssystem" umstellen (bzw. an der Landing, wo die Verfügbarkeit angelegt ist).
+- **B**: Verfügbarkeit ist zwar angelegt, aber am „falschen" Landing-Datensatz (z. B. an einer Ziel-Landing, während das Formular auf einer anderen Source-Landing läuft und `linked_fasttrack_landing_id` nicht auf die richtige zeigt). Fix: `linked_fasttrack_landing_id` setzen oder Zeitplan an der Source-Landing anlegen.
+- **C**: `window.PORTAL_URL` wird von der Landing nicht ausgeliefert (Template baut es nicht ein). Fix: im generierten `template.html`/Kopf-Script sicherstellen, dass `window.PORTAL_URL` gesetzt wird.
+- **D**: `flow_type` auf der Landing/im Formular ist noch `classic` statt `broker` → Broker-Zweig greift nicht.
 
-### Schritt 2 — Deploy-Skript entschärfen, damit das nicht wieder passiert
+## Ausführung (nach Approval)
 
-Zwei kleine Anpassungen in `scripts/deploy.sh` Schritt 4:
+1. In Build-Mode wechseln, Lovable Cloud (Supabase) prüfen; falls die DB-Tools verfügbar sind: obige 3 Diagnose-Queries fahren und Root-Cause festnageln.
+2. Root-Cause beheben — je nach A/B/C/D:
+   - A/B: Daten-Fix per SQL (`UPDATE landing_pages SET booking_mode='internal' WHERE …` bzw. `linked_fasttrack_landing_id` setzen). **Kein Code-Change nötig.**
+   - C: Template-Generator so anpassen, dass `window.PORTAL_URL` immer eingesetzt wird (Code-Fix in `landing-generator.functions.ts` bzw. Theme-Template-Kopf).
+   - D: Landing-Row auf `flow_type='broker'` setzen.
+3. Verifikation: mit `stack_modern--invoke-server-function` einen Test-POST an `/api/public/applications` mit `is_test:false` und den echten Landing-Daten schicken und prüfen, dass `redirect_url` oder `broker.calendly_url` im Response steht.
+4. Manuell auf personalservice-gmbh.de eine Test-Bewerbung absetzen und den Button verifizieren.
 
-- **State-File vorpopulieren**, falls leer: alle bereits vorhandenen `manual-migrations/*.sql` einmalig als „angewendet" markieren. Neue Migrations werden ab jetzt normal erkannt und eingespielt.
-- **Migrations-Fehler nicht fatal**: wenn `psql` fehlschlägt, `warn` loggen und weitermachen — der Service-Restart darf davon nicht abhängen. Neue Migrations bitte weiterhin bewusst manuell prüfen; das war vor unserer Deploy-Automatisierung auch der Prozess.
-
-Optional zusätzlich: einen kurzen Preflight, der `TARGET_DB_URL` einmal mit `psql -c 'select 1'` testet und bei Fehler direkt sagt „Connection kaputt — Migrations-Schritt übersprungen".
-
-## Reihenfolge nach Approval
-
-1. Ich passe `scripts/deploy.sh` an (State-File-Vorpopulierung + Fehler-Tolerierung).
-2. Du machst auf `.124`: `systemctl restart portal.service` (bringt die aktuelle Build-Version sofort live).
-3. Danach `git pull` auf `.124` (holt die deploy.sh-Änderung); künftige `bash scripts/deploy.sh`-Läufe brechen dann nicht mehr am Migrations-Schritt ab.
-4. Landing-Pages im Admin neu generieren → Vermittlungs-Popup zeigt den Termin-Button.
+Kein UI-Fallback im Modal (per deinem Wunsch) — nur Root-Cause.
