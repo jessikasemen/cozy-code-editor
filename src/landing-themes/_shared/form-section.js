@@ -22,6 +22,33 @@
     if(/\/bewerbung\/verbinden/.test(url)) return {label:'Weiter zur Terminwahl  →', sub:'Im nächsten Schritt wählen Sie Ihren Wunschtermin.'};
     return {label:'Jetzt weiter  →', sub:'Klicken Sie auf den Button, um fortzufahren.'};
   }
+  function openBookingOverlay(url){
+    if(!url){return;}
+    var existing=document.getElementById('lv-booking-overlay');
+    if(existing){existing.remove();}
+    var ov=document.createElement('div');ov.id='lv-booking-overlay';
+    ov.setAttribute('role','dialog');ov.setAttribute('aria-modal','true');
+    ov.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.7);display:flex;align-items:center;justify-content:center;z-index:10000;padding:16px;backdrop-filter:blur(3px);';
+    var frameBox=document.createElement('div');
+    frameBox.style.cssText='background:#fff;width:100%;max-width:760px;height:90vh;max-height:900px;border-radius:14px;box-shadow:0 20px 60px -10px rgba(0,0,0,.45);position:relative;overflow:hidden;display:flex;flex-direction:column;';
+    var bar=document.createElement('div');
+    bar.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid #e2e8f0;background:#f8fafc;';
+    var title=document.createElement('div');title.textContent='Termin auswählen';
+    title.style.cssText='font-size:14px;font-weight:600;color:#0f172a;';
+    var closeBtn=document.createElement('button');closeBtn.type='button';closeBtn.innerHTML='&times;';
+    closeBtn.setAttribute('aria-label','Schließen');
+    closeBtn.style.cssText='background:none;border:0;font-size:26px;line-height:1;cursor:pointer;color:#64748b;padding:0 4px;';
+    closeBtn.onclick=function(){ov.remove();};
+    bar.appendChild(title);bar.appendChild(closeBtn);
+    var iframe=document.createElement('iframe');
+    iframe.src=url;iframe.title='Terminauswahl';
+    iframe.setAttribute('allow','clipboard-write');
+    iframe.style.cssText='flex:1;width:100%;border:0;background:#fff;';
+    frameBox.appendChild(bar);frameBox.appendChild(iframe);
+    ov.appendChild(frameBox);
+    ov.addEventListener('click',function(e){if(e.target===ov)ov.remove();});
+    document.body.appendChild(ov);
+  }
   function showModal(opts){
     opts=opts||{};var isFast=!!opts.fast;var broker=opts.broker||null;var wa=String(opts.whatsapp||'').replace(/[^0-9]/g,'');
     var redirectUrl=opts.redirectUrl||'';var emailStatus=opts.emailStatus||null;
