@@ -230,7 +230,9 @@ function BookingConfirmed(props: {
   recruiterName: string;
   applicantEmail?: string;
   applicantFirstName?: string;
+  eventDescription?: string;
 }) {
+
   const start = new Date(props.starts_at);
   const end = new Date(props.ends_at);
   const cancelUrl = typeof window !== "undefined"
