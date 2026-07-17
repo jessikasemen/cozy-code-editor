@@ -8,6 +8,13 @@
 -- 1) CHECK-Constraint erweitern
 ALTER TABLE public.application_reminder_log
   DROP CONSTRAINT IF EXISTS application_reminder_log_reminder_kind_check;
+
+-- Altbestände, die nicht in die neue Liste passen, aufräumen (Log-Tabelle,
+-- Verlust unkritisch – wird bei Bedarf durch den Cron neu erzeugt).
+DELETE FROM public.application_reminder_log
+ WHERE reminder_kind NOT IN
+   ('no_booking_24h','no_booking_72h','no_show_24h','interview_invite_30min');
+
 ALTER TABLE public.application_reminder_log
   ADD CONSTRAINT application_reminder_log_reminder_kind_check
   CHECK (reminder_kind IN ('no_booking_24h','no_booking_72h','no_show_24h','interview_invite_30min'));
