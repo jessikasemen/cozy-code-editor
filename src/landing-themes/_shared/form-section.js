@@ -43,12 +43,24 @@
       // Vermittlung / eigenes Buchungssystem / KI-Interview: immer großer CTA.
       h.textContent='✅ Bewerbung eingegangen';
       p.textContent=meta.sub;
-      var cta=document.createElement('a');cta.href=redirectUrl;
+      var isBooking=/\/buchen\//.test(redirectUrl);
+      var cta=document.createElement(isBooking?'button':'a');
+      if(isBooking){cta.type='button';}else{cta.href=redirectUrl;}
       cta.textContent=meta.label;
-      cta.style.cssText='display:block;width:100%;background:#0f172a;color:#fff;text-decoration:none;font-weight:600;padding:16px 24px;border-radius:10px;font-size:16px;margin-bottom:6px;box-sizing:border-box;';
+      cta.style.cssText='display:block;width:100%;background:#0f172a;color:#fff;border:0;text-align:center;text-decoration:none;font-weight:600;padding:16px 24px;border-radius:10px;font-size:16px;margin-bottom:6px;box-sizing:border-box;cursor:pointer;';
+      if(isBooking){cta.onclick=function(){openBookingOverlay(redirectUrl);};}
       box.appendChild(cta);
-      var sub=document.createElement('p');sub.style.cssText='margin:8px 0 4px;font-size:13px;color:#64748b;';sub.textContent=emailStatus&&emailStatus.status==='sent'?'Sie erhalten zusätzlich eine E-Mail als Backup.':'Falls keine E-Mail ankommt, können Sie direkt über diesen Button fortfahren.';
+      var sub=document.createElement('p');sub.style.cssText='margin:8px 0 4px;font-size:13px;color:#64748b;';
+      sub.textContent=isBooking
+        ? 'Nach Auswahl Ihres Wunschtermins erhalten Sie eine E-Mail mit allen Details (u. a. wo/wie das Gespräch stattfindet).'
+        : (emailStatus&&emailStatus.status==='sent'?'Sie erhalten zusätzlich eine E-Mail als Backup.':'Falls keine E-Mail ankommt, können Sie direkt über diesen Button fortfahren.');
       box.appendChild(sub);
+      if(isBooking){
+        var fb=document.createElement('a');fb.href=redirectUrl;fb.target='_blank';fb.rel='noopener';
+        fb.textContent='Fenster lädt nicht? In neuem Tab öffnen →';
+        fb.style.cssText='display:block;margin:6px 0 0;font-size:12px;color:#2563eb;text-decoration:none;';
+        box.appendChild(fb);
+      }
       box.appendChild(spamHintBox(emailStatus));
     } else if(broker){
       h.textContent=broker.intro_headline||'✅ Bewerbung eingegangen';
