@@ -268,6 +268,13 @@ function BookingConfirmed(props: {
               Google oder Apple.
             </p>
 
+            {props.eventDescription && (
+              <div className="rounded-md border border-border bg-muted/40 p-4 text-sm whitespace-pre-wrap leading-relaxed">
+                {props.eventDescription}
+              </div>
+            )}
+
+
             <div className="text-center text-sm">
               <a href={cancelUrl} className="text-primary hover:underline">
                 Termin absagen oder verschieben
