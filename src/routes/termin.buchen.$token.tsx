@@ -6,7 +6,7 @@ import { format, addDays, startOfDay, isSameDay } from "date-fns";
 import { de } from "date-fns/locale";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Loader2, ChevronLeft, ChevronRight, CalendarCheck } from "lucide-react";
+import { Loader2, CalendarCheck } from "lucide-react";
 import {
   getScheduleForApplicant,
   getAvailableSlots,
