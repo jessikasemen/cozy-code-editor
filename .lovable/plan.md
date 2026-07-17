@@ -1,55 +1,41 @@
 ## Ziel
-Bei einer Bewerbung über die Vermittlungs-Landing `personalservice-gmbh.de` soll im Success-Modal nach „✅ Bewerbung eingegangen" der Button **„Jetzt Termin auswählen"** (eigenes Buchungssystem) erscheinen. Aktuell fehlt er.
 
-## Wie der Button entsteht (Code-Fakten)
+Nach Bewerbung soll **„Jetzt Termin buchen"** kommen (eigenes Buchungssystem statt Calendly / statt direktem KI-Interview). Nach der Terminwahl soll die **Event-Beschreibung** (mit Portal-/Interview-Link) auf der Bestätigungsseite sichtbar sein.
 
-`src/routes/api/public/applications.ts` liefert im POST-Response:
-- `redirect_url` → gesetzt, wenn ein **eigenes** Buchungssystem greift (`/termin/buchen/<magic_token>`)
-- `broker.calendly_url` → gesetzt bei broker+Calendly-Flow
+## Root Cause
 
-`src/landing-themes/_shared/form-section.js` zeigt den Button nur, wenn eines von beiden gefüllt ist. Fehlen beide → stiller Text ohne CTA (genau das aktuelle Symptom).
+In `src/routes/api/public/applications.ts` ist die Redirect-Priorität heute:
 
-`redirect_url` fürs eigene Buchungssystem wird nur gebildet, wenn **alle** folgenden Bedingungen erfüllt sind (Zeilen 294–344 in `applications.ts`):
+```text
+useInterview  →  ownBookingUrl (internes Buchungssystem)  →  broker  →  fast  →  Calendly
+```
 
-1. `d.is_test = false` und `flow_type ≠ 'fast'`
-2. `d.portal_url` ist im Formular-POST gesetzt (`window.PORTAL_URL` in `form-section.js`)
-3. Für Source-Landing **oder** verlinkte Ziel-Landing existiert eine Zeile in `availability_schedules` mit `active = true`
-4. Genau diese Landing (nicht irgendeine andere) hat `booking_mode = 'internal'` — das wird per `landing_pages!inner(booking_mode).eq('landing_pages.booking_mode','internal')` gefiltert
+Auf `personalservice-gmbh.de` hat die Landing `interview_mode = chat/voice/both`, dadurch gewinnt **useInterview** und der Bewerber landet direkt auf `/interview/:id` mit dem Button „Bewerbungsgespräch starten →". Der Buchungs-Kalender (`booking_mode='internal'` + aktiver `availability_schedule`) wird nie erreicht, obwohl Slots angelegt sind.
 
-Wichtig: Wenn der Zeitplan auf Landing A liegt, `booking_mode='internal'` aber auf Landing B, matcht nichts.
+Zusätzlich zeigt `termin.buchen.$token.tsx` die `event_description` bisher nur **vor** der Buchung. Nach der Buchung sieht der Bewerber nur Datum/Uhrzeit — der Portal-/Interview-Link aus der Beschreibung fehlt.
 
-## Diagnose-Schritte (was ich als Erstes prüfe)
+## Änderungen
 
-1. **Landing-Row lesen** (`landing_pages` where domain oder slug matcht personalservice-gmbh.de):
-   - `flow_type` = `'broker'`?
-   - `booking_mode` = `'internal'`?
-   - `linked_fasttrack_landing_id` = ?
-   - `partner_company_id` = ?
-   - `id`, `slug`
+### 1) Priorität umdrehen — `src/routes/api/public/applications.ts`
 
-2. **`availability_schedules`** where `landing_page_id IN (id, linked_fasttrack_landing_id)` UND `active = true` — mind. ein Treffer?
+Wenn die Landing ein aktives internes Buchungssystem hat, geht **Buchung vor Interview**:
 
-3. **Wenn Zeitplan auf verlinkter Landing liegt:** hat diese Landing ebenfalls `booking_mode='internal'`? (der Inner-Join filtert auf die Landing des Zeitplans, nicht auf die Source-Landing)
+```text
+ownBookingUrl  →  useInterview  →  broker  →  fast  →  Calendly
+```
 
-4. **Server-Logs** von `/api/public/applications` bei einer Testbewerbung: die `has_redirect`/`has_broker`-Log-Zeile zeigt sofort, welcher Zweig griff.
+Konkret: den `if (useInterview) … else if (ownBookingUrl)` Block tauschen zu `if (ownBookingUrl) … else if (useInterview)`. `ownBookingUrl` wird bereits vor dem Redirect-Block ermittelt und ist nur gesetzt, wenn tatsächlich ein aktiver internal-Kalender existiert — es entstehen also keine Regressions für Landings ohne Buchungssystem.
 
-5. **Live-Formular in der Landing**: `window.PORTAL_URL` und `window.FLOW_TYPE` im DevTools-Console prüfen — falls `PORTAL_URL` leer ist, wird `ownBookingUrl` nie gebildet.
+Der bestehende `ctaMeta`-Regex `/\/buchen\//` in `src/landing-themes/_shared/form-section.js` matcht den neuen Redirect automatisch und zeigt den Button **„Jetzt Termin auswählen →"** (Label lässt sich bei Bedarf auf „Jetzt Termin buchen" ändern, falls gewünscht).
 
-## Erwartete Root-Causes (Priorität)
+### 2) Event-Beschreibung auf Bestätigungsseite — `src/routes/termin.buchen.$token.tsx`
 
-- **A (wahrscheinlichste)**: `booking_mode` steht nicht auf `internal` — weder auf der Source-Landing noch auf der Landing, an der der aktive Zeitplan hängt. Fix: Landing im Landing-Generator auf „eigenes Buchungssystem" umstellen (bzw. an der Landing, wo die Verfügbarkeit angelegt ist).
-- **B**: Verfügbarkeit ist zwar angelegt, aber am „falschen" Landing-Datensatz (z. B. an einer Ziel-Landing, während das Formular auf einer anderen Source-Landing läuft und `linked_fasttrack_landing_id` nicht auf die richtige zeigt). Fix: `linked_fasttrack_landing_id` setzen oder Zeitplan an der Source-Landing anlegen.
-- **C**: `window.PORTAL_URL` wird von der Landing nicht ausgeliefert (Template baut es nicht ein). Fix: im generierten `template.html`/Kopf-Script sicherstellen, dass `window.PORTAL_URL` gesetzt wird.
-- **D**: `flow_type` auf der Landing/im Formular ist noch `classic` statt `broker` → Broker-Zweig greift nicht.
+Die `BookingConfirmed`-Komponente bekommt eine neue Prop `eventDescription?: string`. Wenn gesetzt, wird sie direkt unter Datum/Uhrzeit als Info-Box gerendert (gleiche Optik wie oben vor der Buchung: `rounded-md border bg-muted/40 p-4 text-sm whitespace-pre-wrap`). Damit sieht der Bewerber unmittelbar nach der Buchung den Portal-/Interview-Link, den der Admin in `landing_pages.event_description` gepflegt hat.
 
-## Ausführung (nach Approval)
+Der Wert kommt aus `s.event_description`, das bereits über `get_schedule_for_application` geladen wird — keine DB-Änderung, keine neue Migration.
 
-1. In Build-Mode wechseln, Lovable Cloud (Supabase) prüfen; falls die DB-Tools verfügbar sind: obige 3 Diagnose-Queries fahren und Root-Cause festnageln.
-2. Root-Cause beheben — je nach A/B/C/D:
-   - A/B: Daten-Fix per SQL (`UPDATE landing_pages SET booking_mode='internal' WHERE …` bzw. `linked_fasttrack_landing_id` setzen). **Kein Code-Change nötig.**
-   - C: Template-Generator so anpassen, dass `window.PORTAL_URL` immer eingesetzt wird (Code-Fix in `landing-generator.functions.ts` bzw. Theme-Template-Kopf).
-   - D: Landing-Row auf `flow_type='broker'` setzen.
-3. Verifikation: mit `stack_modern--invoke-server-function` einen Test-POST an `/api/public/applications` mit `is_test:false` und den echten Landing-Daten schicken und prüfen, dass `redirect_url` oder `broker.calendly_url` im Response steht.
-4. Manuell auf personalservice-gmbh.de eine Test-Bewerbung absetzen und den Button verifizieren.
+## Nicht Teil dieses Fixes
 
-Kein UI-Fallback im Modal (per deinem Wunsch) — nur Root-Cause.
+- Keine Änderung an Templates, E-Mail-Versand, Redaktion der Beschreibung.
+- Keine Änderung am Buchungs-Ablauf selbst (Kalender-UI, Slot-Auswahl, Cancel-Flow bleiben identisch).
+- Interview-Landings ohne aktiven internen Kalender bleiben unverändert (dort greift weiterhin `useInterview`).
