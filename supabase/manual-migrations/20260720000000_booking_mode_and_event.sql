@@ -15,6 +15,9 @@ ALTER TABLE public.landing_pages
 
 -- get_schedule_for_application: nur Landings mit booking_mode='internal' liefern einen Kalender.
 -- Signatur kompatibel zu 20260719 (RETURNS TABLE + Parameter _magic_token) + Event-Felder.
+-- DROP nötig, weil diese Version zusätzliche OUT-Spalten zurückgibt.
+DROP FUNCTION IF EXISTS public.get_schedule_for_application(text);
+
 CREATE OR REPLACE FUNCTION public.get_schedule_for_application(_magic_token text)
 RETURNS TABLE(
   schedule_id uuid,

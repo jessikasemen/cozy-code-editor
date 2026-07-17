@@ -442,6 +442,10 @@ GRANT EXECUTE ON FUNCTION public.get_appointment_by_cancel_token(uuid)
 -- ---------------------------------------------------------------------------
 -- 9) RPC: Schedule-Info per Magic-Token (Bewerber sieht Recruiter-Name etc.)
 -- ---------------------------------------------------------------------------
+-- DROP nötig, falls bereits eine ältere Variante mit anderer RETURNS TABLE-
+-- Struktur existiert: CREATE OR REPLACE kann OUT-Parameter nicht ändern.
+DROP FUNCTION IF EXISTS public.get_schedule_for_application(text);
+
 CREATE OR REPLACE FUNCTION public.get_schedule_for_application(_magic_token text)
 RETURNS TABLE(
   schedule_id uuid,
