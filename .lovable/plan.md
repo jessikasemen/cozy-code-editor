@@ -1,41 +1,41 @@
 ## Ziel
 
-Nach Bewerbung soll **„Jetzt Termin buchen"** kommen (eigenes Buchungssystem statt Calendly / statt direktem KI-Interview). Nach der Terminwahl soll die **Event-Beschreibung** (mit Portal-/Interview-Link) auf der Bestätigungsseite sichtbar sein.
+Nach dem Absenden der Bewerbung soll die Terminauswahl **direkt auf der Landing-Page** (`personalservice-gmbh.de`) stattfinden, statt den Bewerber auf `portal.personalservice-gmbh.de` weiterzuleiten. Die eigentliche Buchungs-Logik (Server-Funktionen, DB, E-Mails, Beschreibung nach Buchung) bleibt unverändert — nur die Hülle wird auf die Landing-Page verlegt.
 
-## Root Cause
+## Ansatz (minimal-invasiv)
 
-In `src/routes/api/public/applications.ts` ist die Redirect-Priorität heute:
+Die bestehende Portal-Route `/termin/buchen/$token` (Kalender + Buchen + Beschreibung nach Buchung) wird als **iFrame-Overlay** auf der Landing-Page geöffnet — statt per Vollnavigation.
 
-```text
-useInterview  →  ownBookingUrl (internes Buchungssystem)  →  broker  →  fast  →  Calendly
-```
-
-Auf `personalservice-gmbh.de` hat die Landing `interview_mode = chat/voice/both`, dadurch gewinnt **useInterview** und der Bewerber landet direkt auf `/interview/:id` mit dem Button „Bewerbungsgespräch starten →". Der Buchungs-Kalender (`booking_mode='internal'` + aktiver `availability_schedule`) wird nie erreicht, obwohl Slots angelegt sind.
-
-Zusätzlich zeigt `termin.buchen.$token.tsx` die `event_description` bisher nur **vor** der Buchung. Nach der Buchung sieht der Bewerber nur Datum/Uhrzeit — der Portal-/Interview-Link aus der Beschreibung fehlt.
+Damit:
+- Bewerber bleibt visuell auf der Landing-Page
+- Keine doppelte UI, keine parallele Kalender-Logik
+- Server-Funktionen, Slots, `bookAppointment`, E-Mail, Beschreibung nach Buchung: **unverändert**
+- Nach erfolgreichem Buchen zeigt die iframe-Seite (wie heute) die Event-Beschreibung mit dem Link zum Portal-Interview
 
 ## Änderungen
 
-### 1) Priorität umdrehen — `src/routes/api/public/applications.ts`
+### 1. `src/landing-themes/_shared/form-section.js` — CTA öffnet Overlay statt Redirect
+- Im `meta.label = 'Jetzt Termin auswählen …'`-Zweig: Button wird zu `<button>` mit Overlay-Handler statt `<a href>`.
+- Overlay = fixiertes Modal (rgba-Backdrop) mit iframe auf `redirectUrl` (`https://portal.…/termin/buchen/<token>`), Höhe ~ 90vh, max-width 720px, Schließen-Button.
+- Fallback-Link darunter: "Falls das Fenster nicht lädt, hier öffnen →" (öffnet Original-URL in neuem Tab). Sichert den Fall ab, in dem der User den Screenshot beschreibt (Landung auf `/`), z. B. wenn eine ältere Portal-Version die Route noch nicht kennt.
+- `postMessage`-Listener: wenn die iframe-Seite `{ type: 'booking_completed' }` sendet, Overlay bleibt offen (der Bewerber liest die Beschreibung), aber ein optionaler „Schließen"-Text erscheint. (Nicht auto-close, damit der Portal-Link in der Beschreibung geklickt werden kann.)
 
-Wenn die Landing ein aktives internes Buchungssystem hat, geht **Buchung vor Interview**:
+### 2. `src/routes/termin.buchen.$token.tsx` — iframe-fähig + Bestätigung posten
+- Nach erfolgreicher Buchung (`onSuccess` von `bookMutation`) zusätzlich `window.parent?.postMessage({ type: 'booking_completed' }, '*')`.
+- Kein Layout-Zwang: die Seite rendert bereits self-contained und funktioniert im iframe.
+- Keine Änderung an Slot-Logik / Buchungs-Server-Funktion / Beschreibung.
 
-```text
-ownBookingUrl  →  useInterview  →  broker  →  fast  →  Calendly
-```
+### 3. `src/routes/__root.tsx` (falls nötig) — X-Frame-Options
+- Sicherstellen, dass `/termin/buchen/*` nicht per `X-Frame-Options: DENY` blockiert wird. Falls global gesetzt: für diese Route weglassen oder `frame-ancestors` in CSP auf die Landing-Domain(s) whitelisten.
+- Nur anpassen, wenn ein Header tatsächlich gesetzt ist (prüfe ich beim Umsetzen).
 
-Konkret: den `if (useInterview) … else if (ownBookingUrl)` Block tauschen zu `if (ownBookingUrl) … else if (useInterview)`. `ownBookingUrl` wird bereits vor dem Redirect-Block ermittelt und ist nur gesetzt, wenn tatsächlich ein aktiver internal-Kalender existiert — es entstehen also keine Regressions für Landings ohne Buchungssystem.
+## Was NICHT geändert wird
 
-Der bestehende `ctaMeta`-Regex `/\/buchen\//` in `src/landing-themes/_shared/form-section.js` matcht den neuen Redirect automatisch und zeigt den Button **„Jetzt Termin auswählen →"** (Label lässt sich bei Bedarf auf „Jetzt Termin buchen" ändern, falls gewünscht).
+- `applications.ts` (Redirect-URL-Logik, Booking-Mode-Erkennung, E-Mail)
+- Kalender/Slot-Server-Funktionen (`getScheduleForApplicant`, `getAvailableSlots`, `bookAppointment`)
+- Portal-Route `/termin/buchen/$token` (bleibt eigenständig aufrufbar — E-Mail-Link funktioniert weiterhin)
+- Datenbankschema, RLS, Termin-Beschreibungslogik
 
-### 2) Event-Beschreibung auf Bestätigungsseite — `src/routes/termin.buchen.$token.tsx`
+## Offene Frage zum Screenshot-Bug
 
-Die `BookingConfirmed`-Komponente bekommt eine neue Prop `eventDescription?: string`. Wenn gesetzt, wird sie direkt unter Datum/Uhrzeit als Info-Box gerendert (gleiche Optik wie oben vor der Buchung: `rounded-md border bg-muted/40 p-4 text-sm whitespace-pre-wrap`). Damit sieht der Bewerber unmittelbar nach der Buchung den Portal-/Interview-Link, den der Admin in `landing_pages.event_description` gepflegt hat.
-
-Der Wert kommt aus `s.event_description`, das bereits über `get_schedule_for_application` geladen wird — keine DB-Änderung, keine neue Migration.
-
-## Nicht Teil dieses Fixes
-
-- Keine Änderung an Templates, E-Mail-Versand, Redaktion der Beschreibung.
-- Keine Änderung am Buchungs-Ablauf selbst (Kalender-UI, Slot-Auswahl, Cancel-Flow bleiben identisch).
-- Interview-Landings ohne aktiven internen Kalender bleiben unverändert (dort greift weiterhin `useInterview`).
+Du berichtest, der Klick landet aktuell auf `https://portal.personalservice-gmbh.de/` (Root) statt `/termin/buchen/<token>`. Nach der Overlay-Umstellung ist das visuell egal, aber falls die Route selbst 404't, würde der iframe auch leer bleiben. Kannst du mir kurz bestätigen, ob `https://portal.personalservice-gmbh.de/termin/buchen/<irgendein-token>` direkt aufgerufen die Kalenderseite zeigt? Falls nein, ist das Portal-Deploy noch nicht aktuell und wir müssen zuerst redeployen (`bash scripts/deploy.sh`), bevor das Overlay Sinn ergibt.
