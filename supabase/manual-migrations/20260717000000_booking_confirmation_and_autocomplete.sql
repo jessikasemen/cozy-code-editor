@@ -86,7 +86,7 @@ BEGIN
 
   -- Booking-Confirmation Cron (alle 2 Min)
   IF proj_url IS NOT NULL AND cron_key IS NOT NULL THEN
-    PERFORM cron.unschedule('send_booking_confirmation');
+    BEGIN PERFORM cron.unschedule('send_booking_confirmation'); EXCEPTION WHEN OTHERS THEN NULL; END;
     PERFORM cron.schedule(
       'send_booking_confirmation',
       '*/2 * * * *',
@@ -105,12 +105,13 @@ BEGIN
   END IF;
 
   -- Auto-Complete Cron (alle 15 Min) — reine SQL-Function, kein HTTP nötig
-  PERFORM cron.unschedule('auto_complete_appointments');
+  BEGIN PERFORM cron.unschedule('auto_complete_appointments'); EXCEPTION WHEN OTHERS THEN NULL; END;
   PERFORM cron.schedule(
     'auto_complete_appointments',
     '*/15 * * * *',
     $c$SELECT public.auto_complete_and_noshow_appointments();$c$
   );
+
 END $$;
 
 NOTIFY pgrst, 'reload schema';
