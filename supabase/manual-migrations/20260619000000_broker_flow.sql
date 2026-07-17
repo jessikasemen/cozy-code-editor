@@ -48,6 +48,7 @@ ALTER TABLE public.partner_companies ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "anon read partner companies"   ON public.partner_companies;
 DROP POLICY IF EXISTS "admins read partner companies" ON public.partner_companies;
+DROP POLICY IF EXISTS "auth read partner companies" ON public.partner_companies;
 DROP POLICY IF EXISTS "admins write partner companies" ON public.partner_companies;
 DROP POLICY IF EXISTS "admins update partner companies" ON public.partner_companies;
 DROP POLICY IF EXISTS "admins delete partner companies" ON public.partner_companies;

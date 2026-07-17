@@ -64,16 +64,20 @@ GRANT ALL ON public.calendly_accounts TO service_role;
 
 ALTER TABLE public.calendly_accounts ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "admins read calendly accounts" ON public.calendly_accounts;
 CREATE POLICY "admins read calendly accounts"
   ON public.calendly_accounts FOR SELECT TO authenticated
   USING (public.has_role(auth.uid(), 'admin'));
+DROP POLICY IF EXISTS "admins insert calendly accounts" ON public.calendly_accounts;
 CREATE POLICY "admins insert calendly accounts"
   ON public.calendly_accounts FOR INSERT TO authenticated
   WITH CHECK (public.has_role(auth.uid(), 'admin'));
+DROP POLICY IF EXISTS "admins update calendly accounts" ON public.calendly_accounts;
 CREATE POLICY "admins update calendly accounts"
   ON public.calendly_accounts FOR UPDATE TO authenticated
   USING (public.has_role(auth.uid(), 'admin'))
   WITH CHECK (public.has_role(auth.uid(), 'admin'));
+DROP POLICY IF EXISTS "admins delete calendly accounts" ON public.calendly_accounts;
 CREATE POLICY "admins delete calendly accounts"
   ON public.calendly_accounts FOR DELETE TO authenticated
   USING (public.has_role(auth.uid(), 'admin'));
