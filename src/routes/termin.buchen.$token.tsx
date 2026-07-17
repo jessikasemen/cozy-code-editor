@@ -89,6 +89,7 @@ function BookingPage() {
         return;
       }
       setConfirmed({ starts_at: res.starts_at, ends_at: res.ends_at, cancel_token: res.cancel_token });
+      try { window.parent?.postMessage({ type: "booking_completed", starts_at: res.starts_at, ends_at: res.ends_at }, "*"); } catch {}
     },
     onError: (e: any) => {
       toast({ title: "Fehler", description: e?.message ?? "Unbekannter Fehler", variant: "destructive" });
