@@ -148,6 +148,24 @@ else
   if [ "$DRY_RUN" = "1" ]; then
     info "[dry-run] würde Container '${BACKEND_FUNCTIONS_CONTAINER}' neu starten"
   else
+    info "prüfe Function-Entrypoints"
+    $SSH bash -s <<REMOTE_FN_CHECK
+set -euo pipefail
+FN_DIR="${FN_DST}"
+missing=0
+for fn in send-chat-reminder send-invitation-email send-application-reminders send-appointment-reminders send-booking-confirmation send-reminders; do
+  if [ ! -f "\$FN_DIR/\$fn/index.ts" ]; then
+    echo "  ✗ fehlt: \$FN_DIR/\$fn/index.ts" >&2
+    missing=1
+  else
+    echo "  · ok: \$fn/index.ts"
+  fi
+done
+if [ "\$missing" = "1" ]; then
+  echo "Edge Function Deploy abgebrochen: mindestens ein Entrypoint fehlt." >&2
+  exit 1
+fi
+REMOTE_FN_CHECK
     info "restart container: ${BACKEND_FUNCTIONS_CONTAINER}"
     $SSH "docker restart ${BACKEND_FUNCTIONS_CONTAINER}" >/dev/null
   fi

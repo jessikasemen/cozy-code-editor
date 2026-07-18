@@ -155,15 +155,17 @@
               return;
             }
             if(res.status===409||err==='slot_taken'){
-              showError('Dieser Termin wurde gerade schon vergeben. Bitte wählen Sie einen anderen.');
-              loadRange();return;
+              loadRange();
+              setTimeout(function(){showError('Dieser Termin wurde gerade schon vergeben. Bitte wählen Sie einen anderen.');},0);
+              return;
             }
-            showError(err==='no_schedule_configured'?'Kalender-Konfiguration konnte nicht gefunden werden. Bitte kontaktieren Sie uns.':'Buchung fehlgeschlagen. Bitte versuchen Sie es erneut.');
-            renderRange();return;
+            renderRange();
+            showError(err==='invalid_body'?'Die Terminzeit konnte nicht verarbeitet werden. Bitte laden Sie die Seite neu und versuchen Sie es erneut.':err==='no_schedule_configured'?'Kalender-Konfiguration konnte nicht gefunden werden. Bitte kontaktieren Sie uns.':'Buchung fehlgeschlagen. Bitte versuchen Sie es erneut.');
+            return;
           }
           renderConfirmed(res.body);
         })
-        .catch(function(){showError('Netzwerkfehler bei der Buchung.');renderRange();});
+        .catch(function(){renderRange();showError('Netzwerkfehler bei der Buchung.');});
     }
 
     function renderConfirmed(bk){

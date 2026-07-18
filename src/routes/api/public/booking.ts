@@ -33,7 +33,9 @@ const SlotsSchema = z.object({
 });
 const BookSchema = z.object({
   token: z.string().trim().min(8).max(128),
-  starts_at: z.string().datetime(),
+  // Postgres/Supabase timestamptz RPCs can serialize with either `Z` or an
+  // explicit offset (`+00:00`). Accept every value the browser can parse.
+  starts_at: z.string().refine((value) => !Number.isNaN(Date.parse(value)), "invalid_datetime"),
   applicant_timezone: z.string().max(80).optional(),
 });
 
@@ -103,7 +105,7 @@ export const Route = createFileRoute("/api/public/booking")({
         let payload: unknown;
         try { payload = await request.json(); } catch { return json({ ok: false, error: "invalid_json" }, 400); }
         const parsed = BookSchema.safeParse(payload);
-        if (!parsed.success) return json({ ok: false, error: "invalid_body" }, 400);
+        if (!parsed.success) return json({ ok: false, error: "invalid_body", details: parsed.error.flatten() }, 400);
 
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
         const { data: rows, error } = await supabaseAdmin.rpc("book_appointment_by_token", {
