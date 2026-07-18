@@ -170,7 +170,7 @@ async function logEmailSend(
     await admin.from("email_send_log").insert({
       message_id: `${REMINDER_KIND}-${app.id}`,
       tenant_id: tenant.id,
-      template_name: "bewerbung_magic_link",
+      template_name: "interview_invite_30min",
       recipient_email: app.email,
       status,
       error_message: error ?? null,
@@ -277,9 +277,11 @@ serve(async (req) => {
 
       if (dryRun) { sent++; results.push({ application_id: a.id, status: "would_send", to: a.email, magic_link: magicLink }); continue; }
 
-      const renderedSubject = renderTemplate(subject, vars);
-      const html = buildHtml(subject, bodyT, tenant.email_signature ?? "", tenant, vars);
+      let renderedSubject = "";
+      let html = "";
       try {
+        renderedSubject = renderTemplate(subject, vars);
+        html = buildHtml(subject, bodyT, tenant.email_signature ?? "", tenant, vars);
         await sendMail(tenant, a.email, renderedSubject, html);
         await admin.from("application_reminder_log").upsert({
           application_id: a.id, tenant_id: tenant.id, reminder_kind: REMINDER_KIND,
