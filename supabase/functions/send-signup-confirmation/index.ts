@@ -192,6 +192,16 @@ Diese E-Mail wurde an ${escapeHtml(email)} gesendet. Wenn du keinen Account ange
         status: "sent",
         template: "signup_confirmation",
       }).then(() => {}, () => {}); // ignore log errors
+      await supabaseAdmin.from("email_send_log").insert({
+        tenant_id,
+        template_name: "signup_confirmation",
+        recipient_email: email,
+        status: "sent",
+        rendered_subject: `Bestätige deine E-Mail-Adresse – ${tenant.name}`,
+        rendered_html: html,
+        sender_email: senderEmail,
+        metadata: { user_id: userId, source: "send-signup-confirmation" },
+      }).then(() => {}, () => {}); // ignore log errors
 
       return json({ success: true, user_id: userId }, 200);
     } catch (sendErr: any) {
