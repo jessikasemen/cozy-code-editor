@@ -206,10 +206,9 @@
         }
         state.schedule=res.body;
         var greet='Wählen Sie Ihren Wunschtermin für das kurze Erstgespräch.';
+        var rec=res.body.recruiter_name||'unserem Recruiting-Team';
         if(res.body.applicant_first_name){
-          greet='Hallo '+res.body.applicant_first_name+', wählen Sie Ihren Wunschtermin';
-          if(res.body.recruiter_name) greet+=' mit '+res.body.recruiter_name;
-          greet+='.';
+          greet='Hallo '+res.body.applicant_first_name+', wählen Sie Ihren Wunschtermin mit '+rec+'.';
         }
         sub.textContent=greet;
         loadRange();
