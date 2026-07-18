@@ -1,34 +1,52 @@
+## Ziel
+Kritischer End-to-End-Test: Für jeden Bewerber-Status prüfen, ob die richtige E-Mail an den richtigen Empfänger rausgeht — sowohl **Trigger-Seite** (App-Code / Cron) als auch **Delivery-Seite** (SMTP, Logs).
 
-## Was ich fixe
+## Test-Matrix (Status → Template → Trigger → Empfänger)
 
-### 1) Bug: falsches `template_name` im E-Mail-Log (Reporting)
-`supabase/functions/send-appointment-reminders/index.ts:173` loggt jede Interview-Einladung als `template_name: "bewerbung_magic_link"`. Versand ist korrekt, aber im Portal-E-Mail-Center werden 30-Min-Einladungen mit der generischen Magic-Link-Mail vermischt.
+| # | Status / Event | Template | Trigger | Empfänger |
+|---|---|---|---|---|
+| 1 | Bewerbung eingegangen (Vermittlung) | `bewerbung_magic_link` | `POST /api/public/applications` | Bewerber |
+| 2 | Termin gebucht | `booking_confirmation` | Booking-API + `send-booking-confirmation` | Bewerber |
+| 3 | 30 Min vor Interview | `interview_invite_30min` | Cron `send-reminders-hourly` | Bewerber |
+| 4 | Kein Termin nach 7 Tagen | `no_booking_7d` | Cron `send-application-reminders` | Bewerber |
+| 5 | No-Show Interview | `no_show_interview` | Cron `auto_complete_appointments` | Bewerber |
+| 6 | Bewerber angenommen / Glückwunsch | `congrats_hired` | Portal-Aktion (Recruiter Button) | Bewerber |
+| 7 | Registrierung abschließen | `signup_complete_reminder` | Cron `process-invite-resend-queue` | Bewerber |
+| 8 | E-Mail bestätigen | `signup_confirmation` | Auth-Event → `send-signup-confirmation` | Bewerber |
+| 9 | Onboarding | `onboarding_welcome` | Nach Registrierung | Mitarbeiter |
+| 10 | Chat-Reminder (manuell) | `chat_reminder` | Admin-Button in `/admin/chat` | Bewerber |
 
-**Fix:** `template_name` → `"interview_invite_30min"`. Betrifft nur die Log-Zeile, keine Trigger-/Empfänger-Logik.
+## Vorgehen (3 Phasen)
 
-### 2) Kleines Robustheits-Fix im gleichen File
-Im `catch`-Block wird `logEmailSend(..., renderedSubject, html, "failed", ...)` aufgerufen, obwohl `renderedSubject`/`html` erst kurz vorher im `try` deklariert sind. Wenn `renderTemplate`/`buildHtml` selbst mal wirft, ist `html` undefined → sekundärer Crash, echter SMTP-Fehler geht verloren.
+### Phase 1 — Read-Only Audit (SQL, keine Änderungen)
+Für jeden der 10 Punkte prüfen:
+- **Trigger existiert?** (Cron-Job aktiv / Code-Pfad vorhanden)
+- **Template im Code registriert?** (`template_name` matched)
+- **Letzter erfolgreicher Send** in den letzten 30 Tagen?
+- **Recipient-Mapping korrekt?** (Bewerber vs. Recruiter vs. Admin)
+- **Fehler-Rate?** (Ratio `failed` / `sent` in `email_send_log`)
 
-**Fix:** `let renderedSubject = ""; let html = "";` vor den `try`-Block ziehen, damit das Failure-Log immer schreibt.
+Ergebnis: Tabelle mit ✅/⚠️/❌ pro Zeile.
 
-### 3) Deploy-Hinweis
-Nur eine Edge-Function betroffen:
-```
-bash scripts/deploy-edge-function.sh send-appointment-reminders
-```
-Kein DB-Migration, kein Frontend-Deploy nötig.
+### Phase 2 — Recipient-Mapping-Check (Code-Audit)
+Für jede Edge-Function / jeden Trigger prüfen, ob der `to`-Parameter tatsächlich der erwartete Empfänger ist:
+- `send-reminders` → `candidate.email` (nicht `recruiter.email`)
+- `send-booking-confirmation` → `appointment.candidate_id → candidate.email`
+- `send-appointment-reminders` → gleicher Weg
+- Kein Cross-Tenant-Leak (Bewerber A bekommt keine Mail von Tenant B)
 
----
+### Phase 3 — Live-Test-Vorschlag (optional, nur wenn du willst)
+Ein synthetischer Bewerber durchläuft alle Status, wir beobachten Logs. Alternativ: bestehende echte Bewerbungen der letzten 24h forensisch nachverfolgen (welche Mails hätten kommen sollen, welche kamen tatsächlich).
 
-## Weitere Ideen (nur wenn du willst — nicht Teil dieses Plans)
+## Was ich brauche
+Sag mir, welche Phase(n) du willst:
+- **A) Nur Phase 1** (schneller SQL-Audit, ~10 Min) — empfohlen als Start
+- **B) Phase 1 + 2** (SQL + Code-Review, gründlich)
+- **C) Alles inkl. Live-Test** (Phase 3 dauert länger, braucht Test-Bewerber)
 
-Nach dem Audit sehe ich **keinen echten Blocker mehr**. Folgende Punkte sind „nice-to-have", würde ich aber nur auf explizite Freigabe anfassen:
+Und: soll ich Fixes gleich mit einbauen, wenn ich Lücken finde (z. B. falsches Template-Label, fehlender Cron), oder erst nur reporten?
 
-- **`send-appointment-reminders` Fenster:** 25–40 Min ist eng. Wenn Cron mal ausfällt oder verspätet läuft, verpasst ein Bewerber die Einladung ganz. Vorschlag: Fenster auf 20–45 Min öffnen + Idempotenz bleibt via `application_reminder_log`.
-- **`emails_paused`-Sichtbarkeit:** Aktuell nur DB-Flag. Ein „E-Mails pausiert"-Badge im Portal-Tenant-Header würde Support-Fragen reduzieren.
-- **Silent-Fail-Detektor:** Ein Portal-Widget „Akzeptierte Bewerber ohne Interview-Invite in 24h" — würde jeden künftigen Trigger-Bug in Minuten sichtbar machen statt Wochen.
-- **End-to-End-Test:** Playwright-Skript, das eine Test-Bewerbung durchschickt und alle 3 erwarteten Mails (`application_received`, `booking_confirmation`, `interview_invite_30min`) im `email_send_log` verifiziert. Einmal geschrieben, jederzeit wiederholbar.
-
-**Ready to test:** Ja, nach den 2 kleinen Fixes oben. Der Vermittlungs-Flow (30 Sends, 0 Errors, saubere Tenant-Isolation) ist produktionsreif. Die Punkte oben sind Hardening, kein Fix.
-
-**Freigabe für Punkt 1+2?** Sag mir zusätzlich, ob du eines der 4 „Nice-to-have"-Themen mit reinnehmen willst.
+## Technische Details
+- SQL läuft gegen Backend (`docker exec supabase-db psql`)
+- Code-Audit: `send-reminders`, `send-booking-confirmation`, `send-signup-confirmation`, `send-appointment-reminders`, `process-invite-resend-queue`, `auto_complete_past_appointments`
+- Output: Markdown-Tabelle mit Status pro Template + konkrete Fix-Vorschläge bei ⚠️/❌
