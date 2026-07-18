@@ -176,9 +176,7 @@
     </div>
     <div class="footer-col">
       <h5>Kontakt</h5>
-      <p class="footer-address">{{footer_address}}</p>
-      <p><a href="mailto:{{footer_email}}">{{footer_email}}</a></p>
-      <p><a href="tel:{{footer_phone}}">{{footer_phone}}</a></p>
+      {{contact_block}}
     </div>
     <div class="footer-col">
       <h5>Nützliche Links</h5>
@@ -190,8 +188,9 @@
       </ul>
     </div>
     <div class="footer-col">
-      <h5>Rechtliches</h5>
-      <ul>
+      <h5>Anbieterkennzeichnung</h5>
+      {{legal_block}}
+      <ul style="margin-top:12px;">
         <li><a href="{{impressum_url}}">Impressum</a></li>
         <li><a href="{{datenschutz_url}}">Datenschutz</a></li>
       </ul>
