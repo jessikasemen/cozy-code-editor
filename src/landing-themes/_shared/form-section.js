@@ -295,10 +295,51 @@
     cb.onclick=function(){ov.remove();};box.appendChild(cb);ov.appendChild(box);
     ov.addEventListener('click',function(e){if(e.target===ov)ov.remove();});document.body.appendChild(ov);
   }
+  // ── DSGVO-Consent + Datenschutz-Kurzfassung ins Formular injizieren ────
+  function injectPrivacyBlock(form){
+    if(!form || form.querySelector('.lv-privacy-block')) return;
+    var submit = form.querySelector('button[type=submit], input[type=submit]');
+    if(!submit) return;
+    var firm = window.LANDING_FIRMENNAME || 'wir';
+    var dsUrl = window.LANDING_DATENSCHUTZ_URL || 'datenschutz.html';
+    var mail = window.LANDING_CONTACT_EMAIL || '';
+    var wrap = document.createElement('div');
+    wrap.className = 'lv-privacy-block';
+    wrap.style.cssText = 'margin:14px 0 12px;font-size:13px;line-height:1.55;color:#475569;text-align:left;';
+    wrap.innerHTML =
+      '<label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;padding:10px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;">'
+      + '<input type="checkbox" id="lv-dsgvo-consent" required style="margin-top:3px;flex-shrink:0;width:16px;height:16px;accent-color:#0f172a;">'
+      + '<span>Ich habe die <a href="'+dsUrl+'" target="_blank" rel="noopener" style="color:#2563eb;text-decoration:underline;">Datenschutzerklärung</a> zur Kenntnis genommen und willige in die Verarbeitung meiner Daten zum Zweck der Bewerbung ein. Diese Einwilligung kann ich jederzeit widerrufen'
+      + (mail?' (per E-Mail an <a href="mailto:'+mail+'" style="color:#2563eb;">'+mail+'</a>)':'')
+      + '.</span>'
+      + '</label>'
+      + '<details style="margin-top:8px;">'
+      + '<summary style="cursor:pointer;font-size:12.5px;color:#64748b;padding:4px 2px;">Ihre Daten werden vertraulich behandelt – Details anzeigen</summary>'
+      + '<div style="margin-top:8px;padding:10px 12px;background:#f8fafc;border-left:3px solid #cbd5e1;border-radius:6px;font-size:12.5px;color:#475569;">'
+      + '<strong>Verantwortlich:</strong> '+firm+'.<br>'
+      + '<strong>Zweck:</strong> Durchführung des Bewerbungsverfahrens (Art. 6 Abs. 1 lit. b DSGVO, § 26 BDSG).<br>'
+      + '<strong>Empfänger:</strong> Nur '+firm+' bzw. – bei Vermittlungsprozessen – die von Ihnen zur Weiterleitung freigegebenen Partnerunternehmen.<br>'
+      + '<strong>Speicherdauer:</strong> Bis zu 6 Monate nach Abschluss des Verfahrens, danach Löschung.<br>'
+      + '<strong>Ihre Rechte:</strong> Auskunft, Berichtigung, Löschung, Einschränkung, Datenübertragbarkeit, Widerspruch, Widerruf – jederzeit'
+      + (mail?' an <a href="mailto:'+mail+'" style="color:#2563eb;">'+mail+'</a>':'')+'.'
+      + '</div>'
+      + '</details>';
+    submit.parentNode.insertBefore(wrap, submit);
+  }
+
   document.addEventListener('DOMContentLoaded',function(){
     var form=document.getElementById('application-form');var status=document.getElementById('form-status');if(!form)return;
+    injectPrivacyBlock(form);
     form.addEventListener('submit',function(e){
-      e.preventDefault();status.className='lv-form-status';status.textContent='Wird gesendet…';
+      e.preventDefault();
+      var consent=form.querySelector('#lv-dsgvo-consent');
+      if(consent && !consent.checked){
+        status.className='lv-form-status error';
+        status.textContent='Bitte bestätigen Sie die Datenschutz-Einwilligung, um fortzufahren.';
+        try{consent.focus();}catch(_){}
+        return;
+      }
+      status.className='lv-form-status';status.textContent='Wird gesendet…';
       var raw=Object.fromEntries(new FormData(form).entries());
       var first=(raw.first_name||'').toString().trim();var last=(raw.last_name||'').toString().trim();var street=(raw.street||'').toString().trim();
       var data={first_name:first||null,last_name:last||null,full_name:(first+' '+last).trim(),email:raw.email,phone:raw.phone||null,
@@ -308,6 +349,8 @@
       if(window.TENANT_ID)data.tenant_id=window.TENANT_ID;
       if(window.PORTAL_URL)data.portal_url=window.PORTAL_URL;
       if(window.SOURCE_SLUG)data.source_slug=window.SOURCE_SLUG;
+      data.dsgvo_consent=true;
+      data.consent_timestamp=new Date().toISOString();
       fetch(window.PORTAL_API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})
         .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();})
         .then(function(res){form.reset();status.className='lv-form-status success';status.textContent='Bewerbung erfolgreich gesendet.';
