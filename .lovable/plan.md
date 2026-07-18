@@ -1,49 +1,102 @@
-## Ziel
 
-1. Bewerber sehen **die ganzen 4 Wochen auf einen Blick** — kein Wochen-Skippen mehr.
-2. Slots sind **nicht mehr blockierbar** — mehrere Bewerber (z. B. 10) können denselben Slot am 17.07. um 18:00 buchen.
+## Diagnose (aus deinem cron.job_run_details Output)
 
-## Änderungen
+Zwei konkrete Probleme, die genau erklären, warum aktuell nichts (bzw. nur zufällig 1/2) versendet wird:
 
-### 1) Buchungsfenster wieder auf 28 Tage (statt 60)
+**1. Doppelte Cron-Jobs**
+```
+send-appointment-reminders     */10 * * * *   (2×)
+send-application-reminders     */30 * * * *   (2×)
+auto_complete_appointments     */5 + */15     (2×)
+```
+Das passiert, weil `cron.schedule(name, ...)` bei jedem Deploy einen NEUEN Job anlegt, wenn `cron.unschedule(name)` fehlschlägt (z.B. weil der alte unter anderem Owner läuft). Ergebnis: 2 parallele Läufe, einer davon mit alter/kaputter Config.
 
-`supabase/manual-migrations/20260722000000_booking_window_28_days.sql` (neu):
-- `ALTER TABLE availability_schedules ALTER COLUMN max_days_ahead SET DEFAULT 28;`
-- `UPDATE availability_schedules SET max_days_ahead = 28 WHERE max_days_ahead <> 28;`
+**2. „Quote command returned error" im pg_net http_post**
+- Beim 16:00-Lauf **succeeded** eine Instanz von `send-application-reminders`, die anderen **failed** mit demselben Fehler.
+- Die Fehlermeldung kommt aus `net._encode_url_with_params_array` – das passiert wenn **URL, Header-Wert oder Body NULL / ungültig** sind.
+- Ursache: Die kaputte Job-Instanz wurde mit einem SQL-Body erstellt, in dem entweder
+  a) `<SUPABASE_URL>` **nicht ersetzt** wurde (also literal in der URL steht), oder
+  b) der Vault-Secret `reminders_service_role_key` zu dem Zeitpunkt NULL war → `'Bearer ' || NULL = NULL` → pg_net wirft „Quote error".
 
-### 2) Slot-Blockierung entfernen (Multi-Buchung erlauben)
+Beweis dass es (a) ist: ein Duplikat succeeded gleichzeitig – Vault-Key ist also da, aber die zweite Job-Definition ist defekt.
 
-Selbe Migration:
-- `ALTER TABLE interview_appointments DROP CONSTRAINT IF EXISTS interview_appointments_no_overlap;` — der GiST-EXCLUDE-Constraint verhindert aktuell parallele Buchungen im selben Zeitraum.
-- `CREATE OR REPLACE FUNCTION public.get_free_appointment_slots(...)` — Konfliktprüfung `NOT EXISTS (SELECT 1 FROM interview_appointments ... && ...)` **entfernen**, damit jeder generierte Slot immer sichtbar bleibt, egal wie viele Buchungen schon existieren.
-- `book_appointment_by_token`: `EXCEPTION WHEN exclusion_violation` bleibt drin (harmlos, kann jetzt nicht mehr feuern). `already_scheduled`-Check pro Application bleibt (ein Bewerber = ein Termin).
+## Lösung – 3 Schritte, alle SQL, kein Code-Deploy nötig
 
-### 3) Landing-Inline-Kalender: 4 Wochen komplett anzeigen
+### Schritt 1: Alle betroffenen Duplikate hart entfernen
 
-`src/landing-themes/_shared/form-section.js`:
-- `state.weekStart` → `state.rangeStart` (immer heute, 0:00).
-- Wochen-Navigation (`prev`/`next`) und Label komplett entfernen.
-- Slots einmalig für **28 Tage** (`from = heute`, `to = heute + 27`) laden.
-- Tage-Grid: statt `grid-template-columns: repeat(7,1fr)` × 1 Reihe → `repeat(7,1fr)` × 4 Reihen (28 Buttons, chronologisch). Auf schmalen Screens `repeat(4,1fr)`/`repeat(2,1fr)` per einfachem `@media`-Inline-Fallback bzw. `auto-fill,minmax(60px,1fr)`.
-- Der Rest (Tag auswählen → Zeiten unten anzeigen → buchen) bleibt.
+```sql
+-- Alle Jobs mit diesen Namen komplett wegwerfen (inkl. Duplikate)
+DO $$
+DECLARE r record;
+BEGIN
+  FOR r IN
+    SELECT jobid, jobname FROM cron.job
+    WHERE jobname IN (
+      'send-appointment-reminders',
+      'send-application-reminders',
+      'process-invite-resend-queue',
+      'auto_complete_appointments'
+    )
+  LOOP
+    PERFORM cron.unschedule(r.jobid);
+    RAISE NOTICE 'unscheduled % (jobid=%)', r.jobname, r.jobid;
+  END LOOP;
+END$$;
 
-### 4) Portal-Buchungsseite (`/termin/buchen/:token`) analog
+-- Verifizieren: alle 4 müssen weg sein
+SELECT jobname, count(*) FROM cron.job GROUP BY jobname ORDER BY jobname;
+```
 
-`src/routes/termin.buchen.$token.tsx`:
-- `DAYS_PER_VIEW = 28`.
-- Zurück/Weiter-Buttons und Range-Header entfernen (nur noch ein statischer Titel „Freie Termine – nächste 4 Wochen").
-- Grid: 4 Reihen × 7 Tage, jede Zelle wie bisher mit Zeiten drunter — oder pro Tag als Karte in einem Wrap-Grid. Bestehende Logik `slotsByDay` bleibt.
+### Schritt 2: Vault-Secret + Supabase-URL prüfen (Preflight)
 
-## Deployment
+```sql
+-- Muss non-NULL zurückgeben, sonst ist der Job garantiert defekt
+SELECT length(decrypted_secret) AS key_len
+FROM vault.decrypted_secrets
+WHERE name = 'reminders_service_role_key';
 
+-- Muss den Wert enthalten den du in der URL brauchst, z.B. 'api.dein-backend.de'
+SELECT current_setting('app.settings.supabase_url', true);
+```
+
+Falls `key_len` NULL ist → Secret einmal frisch einspielen:
+```sql
+SELECT vault.create_secret('<SERVICE_ROLE_KEY_KOMPLETT>', 'reminders_service_role_key');
+```
+
+### Schritt 3: Jobs neu anlegen – **jeweils genau einmal**, mit voller URL fest eingesetzt
+
+Ich schreibe eine neue Migration `supabase/manual-migrations/20260724000000_recreate_cron_jobs_clean.sql`, die:
+- Schritt 1 ausführt (unschedule aller Duplikate),
+- `send-appointment-reminders`, `send-application-reminders`, `process-invite-resend-queue`, `auto_complete_appointments` **je einmal** neu registriert,
+- die `<SUPABASE_URL>`-Platzhalter mit `sed` beim Apply ersetzt (bestehende Konvention),
+- am Ende `NOTIFY pgrst, 'reload schema'` schickt.
+
+Danach ausführen:
 ```bash
 cd /opt/apps/portal && git pull
-bash scripts/deploy-backend.sh   # neue Migration + Constraint-Drop
-sudo bash scripts/deploy.sh      # neues Portal + neues script.js
+sed "s|<SUPABASE_URL>|api.dein-backend.de|g" \
+  supabase/manual-migrations/20260724000000_recreate_cron_jobs_clean.sql \
+  | docker exec -i supabase-db psql -U postgres -d postgres
+
+# Verifizieren: jeder Name genau 1× active
+docker exec -i supabase-db psql -U postgres -d postgres -c \
+  "SELECT jobname, count(*) FROM cron.job GROUP BY jobname ORDER BY jobname;"
+
+# 10 Min warten, dann Ergebnisse checken
+docker exec -i supabase-db psql -U postgres -d postgres -c \
+  "SELECT j.jobname, r.status, r.return_message, r.start_time
+   FROM cron.job_run_details r JOIN cron.job j ON j.jobid=r.jobid
+   WHERE r.start_time > now()-interval '30 min'
+   ORDER BY r.start_time DESC LIMIT 20;"
 ```
-Danach im Portal auf `personalservice-gmbh.de` **„Themes resync"**.
 
-## Hinweise / Trade-offs
+Erwartet: **nur noch `succeeded`**, keine „Quote command" Fehler mehr.
 
-- Ohne den Overlap-Constraint kann ein Slot beliebig oft gebucht werden — genau das, was du willst. Es gibt aber danach **keine harte DB-Garantie** mehr gegen unbeabsichtigte Doppelbuchungen; falls du später doch eine Obergrenze pro Slot willst (z. B. „max. 10"), müssen wir eine `slot_capacity`-Spalte + Count-Check einführen.
-- Die vorher gesetzte 60-Tage-Migration bleibt bestehen; die neue setzt aktiv auf 28 zurück (idempotent, überschreibt sauber).
+## Was danach passiert
+- `send-appointment-reminders` läuft alle 10 Min → 30-Min-Interview-Einladungen gehen raus → Zähler „Interview-Einladung" > 0.
+- `send-application-reminders` läuft alle 30 Min → No-Show, Keine-Buchung, Registrierung-Pending, Rebook-Reminder werden geprüft → entsprechende Zähler steigen sobald ein Bewerber die Trigger-Bedingung erfüllt.
+- `process-invite-resend-queue` läuft alle 15 Min → Fast-Track-Zusagen (Herzlichen Glückwunsch / Registrierung abschließen) werden nachgezogen.
+
+## Bitte kurz bestätigen
+Soll ich in die Migration deinen echten Supabase-Host als Default reinschreiben (dann bleibt der `sed`-Schritt optional)? Wenn ja, gib mir den Host (z.B. `api.personalservice-gmbh.de`), sonst lasse ich `<SUPABASE_URL>` als Platzhalter drin.
