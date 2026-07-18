@@ -122,6 +122,13 @@ import tjgCss from "../landing-themes/theme-job-gleiter/style.css?raw";
 import tjgJs from "../landing-themes/theme-job-gleiter/script.js?raw";
 import tjgMeta from "../landing-themes/theme-job-gleiter/meta.json";
 
+import tmpHtml from "../landing-themes/theme-midnight-premium/template.html?raw";
+import tmpCss from "../landing-themes/theme-midnight-premium/style.css?raw";
+import tmpJs from "../landing-themes/theme-midnight-premium/script.js?raw";
+import tmpMeta from "../landing-themes/theme-midnight-premium/meta.json";
+
+
+
 
 
 
