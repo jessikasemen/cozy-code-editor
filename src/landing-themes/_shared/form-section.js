@@ -49,9 +49,12 @@
     var h=document.createElement('h3');h.style.cssText='margin:0 0 6px;font-size:20px;font-weight:700;';h.textContent='Termin auswählen';
     var sub=document.createElement('p');sub.style.cssText='margin:0 0 4px;color:#475569;font-size:14px;line-height:1.5;';
     sub.textContent='Wir laden Ihren Kalender …';
-    var hint=document.createElement('p');hint.style.cssText='margin:0 0 14px;color:#64748b;font-size:12.5px;';
+    var hint=document.createElement('p');hint.style.cssText='margin:0 0 6px;color:#64748b;font-size:12.5px;';
     hint.textContent='Die Zugangsdaten für das Gespräch erhalten Sie im Anschluss per E-Mail.';
-    header.appendChild(h);header.appendChild(sub);header.appendChild(hint);
+    var priv=document.createElement('p');priv.style.cssText='margin:0 0 14px;color:#94a3b8;font-size:11.5px;line-height:1.5;';
+    var dsUrl=window.LANDING_DATENSCHUTZ_URL||'datenschutz.html';
+    priv.innerHTML='Ihre Daten werden ausschließlich zur Terminvereinbarung verwendet. Details in unserer <a href="'+dsUrl+'" target="_blank" rel="noopener" style="color:#64748b;text-decoration:underline;">Datenschutzerklärung</a>.';
+    header.appendChild(h);header.appendChild(sub);header.appendChild(hint);header.appendChild(priv);
     container.appendChild(header);
 
     var body=document.createElement('div');container.appendChild(body);
