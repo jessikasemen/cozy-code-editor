@@ -1,102 +1,99 @@
+## Ziel
 
-## Diagnose (aus deinem cron.job_run_details Output)
+Vollständiger End-to-End-Audit: **Löst jedes E-Mail-Template wirklich aus, und geht es an den richtigen Empfänger?**
 
-Zwei konkrete Probleme, die genau erklären, warum aktuell nichts (bzw. nur zufällig 1/2) versendet wird:
+Aktuell wissen wir nur: Cron läuft, 30 Sends in 24h, 0 Fehler. Das beweist **nicht**, dass jeder Trigger den richtigen Bewerber/Mitarbeiter erreicht.
 
-**1. Doppelte Cron-Jobs**
-```
-send-appointment-reminders     */10 * * * *   (2×)
-send-application-reminders     */30 * * * *   (2×)
-auto_complete_appointments     */5 + */15     (2×)
-```
-Das passiert, weil `cron.schedule(name, ...)` bei jedem Deploy einen NEUEN Job anlegt, wenn `cron.unschedule(name)` fehlschlägt (z.B. weil der alte unter anderem Owner läuft). Ergebnis: 2 parallele Läufe, einer davon mit alter/kaputter Config.
+## Audit-Umfang
 
-**2. „Quote command returned error" im pg_net http_post**
-- Beim 16:00-Lauf **succeeded** eine Instanz von `send-application-reminders`, die anderen **failed** mit demselben Fehler.
-- Die Fehlermeldung kommt aus `net._encode_url_with_params_array` – das passiert wenn **URL, Header-Wert oder Body NULL / ungültig** sind.
-- Ursache: Die kaputte Job-Instanz wurde mit einem SQL-Body erstellt, in dem entweder
-  a) `<SUPABASE_URL>` **nicht ersetzt** wurde (also literal in der URL steht), oder
-  b) der Vault-Secret `reminders_service_role_key` zu dem Zeitpunkt NULL war → `'Bearer ' || NULL = NULL` → pg_net wirft „Quote error".
+Ich prüfe pro Template systematisch **4 Dimensionen**:
 
-Beweis dass es (a) ist: ein Duplikat succeeded gleichzeitig – Vault-Key ist also da, aber die zweite Job-Definition ist defekt.
+| Dimension | Frage |
+|---|---|
+| **Trigger** | Wo im Code wird `sendTemplateEmail(...)` bzw. die Edge-Function aufgerufen? |
+| **Empfänger** | Welche E-Mail-Adresse wird tatsächlich als `to` gesetzt? Aus welcher Tabelle/Spalte? |
+| **Bedingung** | Welche `WHERE`-Filter/Status/Idempotenz-Log verhindern Doppelversand oder falsche Empfänger? |
+| **Beweis** | Gibt es in den letzten 30 Tagen **echte Rows** in `email_send_log` / `reminder_log` / `application_reminder_log`? |
 
-## Lösung – 3 Schritte, alle SQL, kein Code-Deploy nötig
+## Template-Matrix (Ist-Stand)
 
-### Schritt 1: Alle betroffenen Duplikate hart entfernen
+Aus dem bisherigen Kontext bekannt:
+
+| Template | Trigger-Ort | Bekannter Status |
+|---|---|---|
+| `application_received` (Vermittlung) | `/api/public/applications` nach Insert | ✅ läuft |
+| `vermittlung_no_booking_24h/72h` | Cron `send-application-reminders` | ✅ 24 Sends |
+| `vermittlung_no_show_24h` | Cron `send-application-reminders` | ✅ 2 Sends |
+| `vermittlung_rebook_after_cancel_*` | Cron | ✅ 2 Sends |
+| `appointment_reminder_30min` | Cron `send-appointment-reminders` | 0 in 24h → nur wenn Termin fällig |
+| `booking_confirmation` | Edge `send-booking-confirmation` nach Buchung | ungeprüft |
+| `interview_invite` (accepted → Kalender) | Server-Fn oder Cron | ungeprüft |
+| `chat_reminder` (manuell) | Admin-UI Button | ungeprüft nach Fix |
+| `signup_confirmation` / `resend_signup_confirmation` | Auth-Hook + Admin-UI | ungeprüft |
+| `password_reset` | Auth-Hook | ungeprüft |
+| `invite_resend_queue` (Drip) | Cron `process-invite-resend-queue` | ✅ 1184 sent, 12 skipped |
+| `onboarding_stage_*` / `welcome` | Nach Stage-Transition | ungeprüft |
+| `no_show_interview` (Portal) | Cron / Trigger | ungeprüft |
+
+## Was ich brauche (Code-only Prüfung, kein DB-Zugriff nötig)
+
+Ich lese die relevanten Edge-Functions und Server-Functions und dokumentiere pro Template:
+
+1. **Trigger-Kette** — Datei + Zeile, ab welcher `INSERT`/`UPDATE`/Cron der Send losläuft.
+2. **Empfänger-Herleitung** — z. B. `applications.email` vs. `profiles.email` vs. `auth.users.email` — und ob ein Fallback existiert (Bug-Risiko: leere E-Mail → an Admin oder gar nicht).
+3. **Tenant-Zuordnung** — bekommt der Bewerber die Mail vom **richtigen Tenant-SMTP** (nicht vom Fremd-Tenant)?
+4. **Idempotenz** — welche `unique`-Constraint/`_log`-Tabelle verhindert Doppelmails.
+5. **Placeholder-Rendering** — `{{first_name}}`, `{{booking_url}}` etc. — wird der richtige Wert eingesetzt oder droht `{{first_name}}` als Literal in der Mail?
+
+## Verifikation im laufenden System
+
+Zusätzlich gebe ich dir **drei fokussierte SQL-Queries** zum Backend-Copy-Paste:
 
 ```sql
--- Alle Jobs mit diesen Namen komplett wegwerfen (inkl. Duplikate)
-DO $$
-DECLARE r record;
-BEGIN
-  FOR r IN
-    SELECT jobid, jobname FROM cron.job
-    WHERE jobname IN (
-      'send-appointment-reminders',
-      'send-application-reminders',
-      'process-invite-resend-queue',
-      'auto_complete_appointments'
-    )
-  LOOP
-    PERFORM cron.unschedule(r.jobid);
-    RAISE NOTICE 'unscheduled % (jobid=%)', r.jobname, r.jobid;
-  END LOOP;
-END$$;
+-- Q1: Pro Template letzte 30 Tage — Zahl + letzter Empfänger (Beweis)
+SELECT template, status, count(*), max(created_at), 
+       (array_agg(recipient ORDER BY created_at DESC))[1] AS last_recipient
+FROM email_send_log 
+WHERE created_at > now() - interval '30 days'
+GROUP BY template, status ORDER BY template, status;
 
--- Verifizieren: alle 4 müssen weg sein
-SELECT jobname, count(*) FROM cron.job GROUP BY jobname ORDER BY jobname;
+-- Q2: Falsche Empfänger-Zuordnung? (Mail an anderen Tenant als Bewerbung)
+SELECT esl.template, esl.recipient, esl.tenant_id AS mail_tenant,
+       a.tenant_id AS app_tenant, a.email AS app_email
+FROM email_send_log esl
+LEFT JOIN applications a ON lower(a.email) = lower(esl.recipient)
+WHERE esl.created_at > now() - interval '7 days'
+  AND a.tenant_id IS NOT NULL 
+  AND a.tenant_id <> esl.tenant_id
+LIMIT 50;
+
+-- Q3: Trigger-Kandidaten die NICHT gefeuert haben (Silent-Fail-Detektor)
+-- z.B. accepted Bewerber ohne interview_invite Mail
+SELECT a.id, a.email, a.status, a.created_at
+FROM applications a
+WHERE a.status = 'akzeptiert'
+  AND a.created_at > now() - interval '30 days'
+  AND NOT EXISTS (
+    SELECT 1 FROM email_send_log e 
+    WHERE lower(e.recipient) = lower(a.email) 
+      AND e.template LIKE 'interview_invite%'
+  )
+LIMIT 20;
 ```
 
-### Schritt 2: Vault-Secret + Supabase-URL prüfen (Preflight)
+## Deliverable
 
-```sql
--- Muss non-NULL zurückgeben, sonst ist der Job garantiert defekt
-SELECT length(decrypted_secret) AS key_len
-FROM vault.decrypted_secrets
-WHERE name = 'reminders_service_role_key';
+Nach Freigabe des Plans liefere ich:
 
--- Muss den Wert enthalten den du in der URL brauchst, z.B. 'api.dein-backend.de'
-SELECT current_setting('app.settings.supabase_url', true);
-```
+1. **Audit-Tabelle** (Markdown) pro Template mit Trigger-Datei:Zeile, Empfänger-Feld, Tenant-Isolation, Idempotenz-Beweis, Status **✅ / ⚠️ / ❌**.
+2. **Konkrete Findings** (falls vorhanden): z. B. „`onboarding_stage_start` nutzt `profiles.email` — Bewerber ohne Profil bekommen die Mail nicht" oder „`interview_invite` sendet an `applications.email` — bei Tippfehler kein Fallback".
+3. **Die 3 SQL-Queries oben** zum sofortigen Copy-Paste im Backend, um meine Code-Findings mit echten Daten zu verifizieren.
+4. **Fix-Vorschläge nur** für konkret gefundene Probleme — kein Umbau des funktionierenden Systems.
 
-Falls `key_len` NULL ist → Secret einmal frisch einspielen:
-```sql
-SELECT vault.create_secret('<SERVICE_ROLE_KEY_KOMPLETT>', 'reminders_service_role_key');
-```
+## Was ich NICHT tue
 
-### Schritt 3: Jobs neu anlegen – **jeweils genau einmal**, mit voller URL fest eingesetzt
+- Keine Code-Änderungen im Plan-Modus.
+- Keine spekulativen Refactors.
+- Keinen Umbau von Templates, die laut `email_send_log` sauber feuern.
 
-Ich schreibe eine neue Migration `supabase/manual-migrations/20260724000000_recreate_cron_jobs_clean.sql`, die:
-- Schritt 1 ausführt (unschedule aller Duplikate),
-- `send-appointment-reminders`, `send-application-reminders`, `process-invite-resend-queue`, `auto_complete_appointments` **je einmal** neu registriert,
-- die `<SUPABASE_URL>`-Platzhalter mit `sed` beim Apply ersetzt (bestehende Konvention),
-- am Ende `NOTIFY pgrst, 'reload schema'` schickt.
-
-Danach ausführen:
-```bash
-cd /opt/apps/portal && git pull
-sed "s|<SUPABASE_URL>|api.dein-backend.de|g" \
-  supabase/manual-migrations/20260724000000_recreate_cron_jobs_clean.sql \
-  | docker exec -i supabase-db psql -U postgres -d postgres
-
-# Verifizieren: jeder Name genau 1× active
-docker exec -i supabase-db psql -U postgres -d postgres -c \
-  "SELECT jobname, count(*) FROM cron.job GROUP BY jobname ORDER BY jobname;"
-
-# 10 Min warten, dann Ergebnisse checken
-docker exec -i supabase-db psql -U postgres -d postgres -c \
-  "SELECT j.jobname, r.status, r.return_message, r.start_time
-   FROM cron.job_run_details r JOIN cron.job j ON j.jobid=r.jobid
-   WHERE r.start_time > now()-interval '30 min'
-   ORDER BY r.start_time DESC LIMIT 20;"
-```
-
-Erwartet: **nur noch `succeeded`**, keine „Quote command" Fehler mehr.
-
-## Was danach passiert
-- `send-appointment-reminders` läuft alle 10 Min → 30-Min-Interview-Einladungen gehen raus → Zähler „Interview-Einladung" > 0.
-- `send-application-reminders` läuft alle 30 Min → No-Show, Keine-Buchung, Registrierung-Pending, Rebook-Reminder werden geprüft → entsprechende Zähler steigen sobald ein Bewerber die Trigger-Bedingung erfüllt.
-- `process-invite-resend-queue` läuft alle 15 Min → Fast-Track-Zusagen (Herzlichen Glückwunsch / Registrierung abschließen) werden nachgezogen.
-
-## Bitte kurz bestätigen
-Soll ich in die Migration deinen echten Supabase-Host als Default reinschreiben (dann bleibt der `sed`-Schritt optional)? Wenn ja, gib mir den Host (z.B. `api.personalservice-gmbh.de`), sonst lasse ich `<SUPABASE_URL>` als Platzhalter drin.
+**Freigabe?** Dann starte ich mit dem Code-Audit und liefere die Matrix + SQL-Queries in der nächsten Runde.
