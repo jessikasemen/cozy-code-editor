@@ -447,6 +447,8 @@ export const generateLandingZip = createServerFn({ method: "POST" })
     html = html.replace(/<section[^>]*id=["'](?:impressum|datenschutz)["'][\s\S]*?<\/section>\s*/gi, "");
 
     html = cleanEmptyMetaTags(html, cleanedBranding);
+    html = injectTrustStrip(html);
+    html = injectTrustFooter(html, cleanedBranding);
     html = injectLandingConfig(html, cleanedBranding);
     const css = applyPlaceholders(theme.css, cleanedBranding, slots);
     const js = applyPlaceholders(theme.js, cleanedBranding, slots);
