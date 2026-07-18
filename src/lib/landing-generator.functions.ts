@@ -425,9 +425,8 @@ function injectTestimonials(html: string, slots: Record<string, string>): string
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:24px;">${cards.join("")}</div>
   </div>
 </section>`;
-  const re = /<section[^>]*id=["']bewerbung-form["']/i;
-  if (re.test(html)) return html.replace(re, (m) => block + "\n" + m);
-  return html;
+  return insertBeforeAnchor(html, block);
+
 }
 
 function injectBenefits(html: string, slots: Record<string, string>): string {
