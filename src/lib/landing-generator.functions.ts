@@ -384,9 +384,8 @@ function injectContactCard(
     </div>
   </div>
 </section>`;
-  const re = /<section[^>]*id=["']bewerbung-form["']/i;
-  if (re.test(html)) return html.replace(re, (m) => block + "\n" + m);
-  return html;
+  return insertBeforeAnchor(html, block);
+
 }
 
 function injectTestimonials(html: string, slots: Record<string, string>): string {
