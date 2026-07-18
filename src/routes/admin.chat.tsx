@@ -337,10 +337,24 @@ function AdminChatPage() {
       body: { userId, leaderName: user?.user_metadata?.full_name || user?.email || undefined },
     });
     setRemindingId(null);
-    if (error || (data as any)?.error) {
-      const msg = (data as any)?.error || error?.message || "Unbekannter Fehler";
-      const skipped = (data as any)?.skipped;
-      const suppressed = (data as any)?.suppressed;
+    let responseData: any = data;
+    const errorContext = (error as any)?.context;
+    if (errorContext && typeof errorContext.clone === "function") {
+      try {
+        responseData = await errorContext.clone().json();
+      } catch {
+        try {
+          const text = await errorContext.clone().text();
+          responseData = text ? JSON.parse(text) : null;
+        } catch {
+          responseData = data;
+        }
+      }
+    }
+    if (error || responseData?.error) {
+      const msg = responseData?.error || error?.message || "Unbekannter Fehler";
+      const skipped = responseData?.skipped;
+      const suppressed = responseData?.suppressed;
       toast({
         title: suppressed ? "⚠️ Adresse gesperrt" : skipped ? "Nicht gesendet" : "Erinnerung fehlgeschlagen",
         description: msg,
