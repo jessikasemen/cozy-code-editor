@@ -82,7 +82,7 @@
           var active = state.selectedDay===ymd;
           b.style.cssText='padding:8px 2px;border-radius:10px;border:1.5px solid '+(active?'#0f172a':'#e2e8f0')+';background:'+(active?'#0f172a':disabled?'#f8fafc':'#fff')+';color:'+(active?'#fff':disabled?'#cbd5e1':'#0f172a')+';cursor:'+(disabled?'not-allowed':'pointer')+';font-size:12px;font-weight:600;text-align:center;line-height:1.25;';
           var wd=d.toLocaleDateString('de-DE',{weekday:'short'});
-          b.innerHTML='<div style="font-size:10.5px;opacity:.7;">'+wd+'</div><div style="font-size:14px;margin-top:2px;">'+String(d.getDate()).padStart(2,'0')+'.'+String(d.getMonth()+1).padStart(2,'0')+'</div><div style="font-size:10px;margin-top:2px;opacity:.75;">'+(slots.length? slots.length+' frei':state.loadingSlots?'…':'—')+'</div>';
+          b.innerHTML='<div style="font-size:10.5px;opacity:.7;">'+wd+'</div><div style="font-size:14px;margin-top:2px;">'+String(d.getDate()).padStart(2,'0')+'.'+String(d.getMonth()+1).padStart(2,'0')+'</div><div style="font-size:10px;margin-top:2px;opacity:.75;">'+(slots.length?'frei':state.loadingSlots?'…':'—')+'</div>';
           if(!disabled){b.onclick=function(){state.selectedDay=ymd;renderRange();};}
           grid.appendChild(b);
         })(i);
@@ -148,11 +148,17 @@
         .then(function(r){return r.json().then(function(j){return {status:r.status, body:j};});})
         .then(function(res){
           if(!res.body||!res.body.ok){
-            if(res.status===409){
+            var err=res.body&&res.body.error;
+            if(err==='already_scheduled'){
+              renderRange();
+              showError('Für diese Bewerbung ist bereits ein Termin gebucht. Bitte prüfen Sie Ihre Bestätigungs-E-Mail.');
+              return;
+            }
+            if(res.status===409||err==='slot_taken'){
               showError('Dieser Termin wurde gerade schon vergeben. Bitte wählen Sie einen anderen.');
               loadRange();return;
             }
-            showError('Buchung fehlgeschlagen. Bitte versuchen Sie es erneut.');
+            showError(err==='no_schedule_configured'?'Kalender-Konfiguration konnte nicht gefunden werden. Bitte kontaktieren Sie uns.':'Buchung fehlgeschlagen. Bitte versuchen Sie es erneut.');
             renderRange();return;
           }
           renderConfirmed(res.body);
