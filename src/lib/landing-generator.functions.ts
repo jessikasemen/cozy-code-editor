@@ -348,10 +348,9 @@ function injectSocialProofBar(html: string, slots: Record<string, string>): stri
 </section>`;
   const re = /<section[^>]*class=["'][^"']*lv-trust-strip[^"']*["']/i;
   if (re.test(html)) return html.replace(re, (m) => block + "\n" + m);
-  const re2 = /<section[^>]*id=["']bewerbung-form["']/i;
-  if (re2.test(html)) return html.replace(re2, (m) => block + "\n" + m);
-  return html;
+  return insertBeforeAnchor(html, block);
 }
+
 
 function injectContactCard(
   html: string,
