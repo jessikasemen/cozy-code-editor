@@ -706,7 +706,14 @@ export const generateLandingZip = createServerFn({ method: "POST" })
 
     html = cleanEmptyMetaTags(html, cleanedBranding);
     html = injectTrustStrip(html);
+    html = injectSocialProofBar(html, slots);
+    html = injectContactCard(html, cleanedBranding, slots);
+    html = injectBenefits(html, slots);
+    html = injectTestimonials(html, slots);
     html = injectTrustFooter(html, cleanedBranding);
+    html = injectCertBar(html, slots);
+    html = injectFaq(html, slots);
+    html = injectPolish(html);
     html = injectLandingConfig(html, cleanedBranding);
     const css = applyPlaceholders(theme.css, cleanedBranding, slots);
     const js = applyPlaceholders(theme.js, cleanedBranding, slots);
