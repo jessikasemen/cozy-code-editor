@@ -250,6 +250,23 @@ function injectTrustFooter(html: string, b: z.infer<typeof BrandingSchema>): str
   return html + block;
 }
 
+// Fügt einen HTML-Block vor dem ersten "sinnvollen" Anker ein: bewerbung-form-
+// Section (falls Theme eine hat) → sonst <footer> → sonst lov-apply-modal →
+// sonst </body>. Sorgt dafür, dass zentral injizierte Trust-Sektionen in
+// JEDEM Theme sichtbar werden, auch wenn das Bewerbungsformular als Modal läuft.
+function insertBeforeAnchor(html: string, block: string): string {
+  const anchors: RegExp[] = [
+    /<section[^>]*id=["']bewerbung-form["']/i,
+    /<footer[\s>]/i,
+    /<div[^>]*id=["']lov-apply-modal["']/i,
+  ];
+  for (const re of anchors) {
+    if (re.test(html)) return html.replace(re, (m) => block + "\n" + m);
+  }
+  if (/<\/body>/i.test(html)) return html.replace(/<\/body>/i, block + "\n</body>");
+  return html + block;
+}
+
 // Injiziert einen "So geht's weiter"-Trust-Block direkt VOR dem
 // Bewerbungsformular. Baut Vertrauen genau am Conversion-Punkt.
 function injectTrustStrip(html: string): string {
@@ -289,10 +306,9 @@ function injectTrustStrip(html: string): string {
     </div>
   </div>
 </section>`;
-  const re = /<section[^>]*id=["']bewerbung-form["']/i;
-  if (re.test(html)) return html.replace(re, (m) => block + "\n" + m);
-  return html;
+  return insertBeforeAnchor(html, block);
 }
+
 
 // ── Sprint 2/3: neue Trust-Sektionen (zentral, betrifft alle 17 Themes) ──
 
