@@ -157,6 +157,33 @@ async function sendMail(tenant: TenantRow, to: string, subject: string, html: st
   });
 }
 
+async function logEmailSend(
+  admin: any,
+  tenant: TenantRow,
+  app: any,
+  subject: string,
+  html: string,
+  status: "sent" | "failed",
+  error?: string,
+) {
+  try {
+    await admin.from("email_send_log").insert({
+      message_id: `${REMINDER_KIND}-${app.id}`,
+      tenant_id: tenant.id,
+      template_name: "bewerbung_magic_link",
+      recipient_email: app.email,
+      status,
+      error_message: error ?? null,
+      rendered_subject: subject,
+      rendered_html: html,
+      sender_email: tenant.sender_email ?? tenant.smtp_username,
+      metadata: { application_id: app.id, kind: REMINDER_KIND, source: "send-appointment-reminders" },
+    });
+  } catch (e) {
+    console.warn("email_send_log insert skipped:", e);
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -258,6 +285,7 @@ serve(async (req) => {
           application_id: a.id, tenant_id: tenant.id, reminder_kind: REMINDER_KIND,
           recipient_email: a.email, status: "sent",
         }, { onConflict: "application_id,reminder_kind" });
+        await logEmailSend(admin, tenant, a, renderedSubject, html, "sent");
         sent++; results.push({ application_id: a.id, status: "sent" });
         // SMTP-Throttle gegen Rate-Limit
         await new Promise((r) => setTimeout(r, 4000));
@@ -268,6 +296,7 @@ serve(async (req) => {
           application_id: a.id, tenant_id: tenant.id, reminder_kind: REMINDER_KIND,
           recipient_email: a.email, status: "failed", error: errMsg,
         }, { onConflict: "application_id,reminder_kind" });
+        await logEmailSend(admin, tenant, a, renderedSubject, html, "failed", errMsg);
         results.push({ application_id: a.id, status: "failed", reason: errMsg });
       }
     }

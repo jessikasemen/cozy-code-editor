@@ -192,12 +192,33 @@ Diese E-Mail wurde an ${escapeHtml(email)} gesendet. Wenn du keinen Account ange
         status: "sent",
         template: "signup_confirmation",
       }).then(() => {}, () => {}); // ignore log errors
+      await supabaseAdmin.from("email_send_log").insert({
+        tenant_id,
+        template_name: "signup_confirmation",
+        recipient_email: email,
+        status: "sent",
+        rendered_subject: `Bestätige deine E-Mail-Adresse – ${tenant.name}`,
+        rendered_html: html,
+        sender_email: senderEmail,
+        metadata: { user_id: userId, source: "send-signup-confirmation" },
+      }).then(() => {}, () => {}); // ignore log errors
 
       return json({ success: true, user_id: userId }, 200);
     } catch (sendErr: any) {
       // Rollback: User wieder löschen, damit er es nochmal versuchen kann
       await supabaseAdmin.auth.admin.deleteUser(userId).catch(() => {});
       console.error("SMTP send failed:", sendErr);
+      await supabaseAdmin.from("email_send_log").insert({
+        tenant_id,
+        template_name: "signup_confirmation",
+        recipient_email: email,
+        status: "failed",
+        error_message: `Mail-Versand fehlgeschlagen: ${sendErr?.message ?? sendErr}`,
+        rendered_subject: `Bestätige deine E-Mail-Adresse – ${tenant.name}`,
+        rendered_html: null,
+        sender_email: tenant.sender_email ?? tenant.smtp_username,
+        metadata: { user_id: userId, source: "send-signup-confirmation" },
+      }).then(() => {}, () => {}); // ignore log errors
       return json({ error: `Mail-Versand fehlgeschlagen: ${sendErr?.message ?? sendErr}` }, 500);
     }
   } catch (err: any) {

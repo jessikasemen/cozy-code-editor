@@ -21,18 +21,19 @@ export const Route = createFileRoute("/admin/email-center")({
  */
 
 // Aktive Templates im neuen Flow (Bewerbung -> Interview -> Onboarding).
-const ACTIVE_TEMPLATES: { key: string; label: string; group: string; trigger: string }[] = [
+const ACTIVE_TEMPLATES: { key: string; keys?: string[]; label: string; group: string; trigger: string }[] = [
   // Vermittlungs-Flow (Broker) — Bewerber-Reminder aus send-application-reminders
   { key: "vermittlung_no_booking_24h", label: "Vermittlung: Kein Termin (24h)",  group: "Vermittlung", trigger: "24h nach Bewerbung ohne Calendly-Buchung" },
   { key: "vermittlung_no_booking_72h", label: "Vermittlung: Kein Termin (72h)",  group: "Vermittlung", trigger: "72h nach Bewerbung ohne Calendly-Buchung" },
-  { key: "vermittlung_no_show_24h",    label: "Vermittlung: No-Show (24h)",      group: "Vermittlung", trigger: "24h nach verpasstem Termin" },
+  { key: "vermittlung_no_show_24h",    label: "No-Show Interview",               group: "Vermittlung", trigger: "24h nach verpasstem Termin" },
   { key: "bewerbung_magic_link",       label: "Vermittlung: Interview-Einladung", group: "Vermittlung", trigger: "30 Minuten vor dem Termin" },
+  { key: "booking_confirmation",       label: "Vermittlung: Terminbestätigung",   group: "Vermittlung", trigger: "Direkt nach Terminbuchung" },
+  { key: "vermittlung_registration_pending", keys: ["vermittlung_registration_pending_24h", "vermittlung_registration_pending_72h"], label: "Vermittlung: Registrierung offen", group: "Vermittlung", trigger: "24h / 72h nach Zusage ohne Registrierung" },
   // Fast-Track / Onboarding
   { key: "invitation",                       label: "Herzlichen Glückwunsch", group: "Onboarding", trigger: "Sofort nach Fast-Track-Zusage" },
-  { key: "reminder_complete_registration",   label: "Registrierung abschließen",    group: "Reminder",   trigger: "3 Reminder – 24h / 48h / 72h nach Zusage" },
-  { key: "reminder_onboarding_incomplete",   label: "Onboarding (Perso/Vertrag)",   group: "Reminder",   trigger: "3 Reminder – nach Registrierung ohne KYC/Vertrag" },
-  { key: "reminder_confirm_email",           label: "E-Mail bestätigen",            group: "Reminder",   trigger: "3 Reminder bei unbestätigter Mail" },
-  { key: "appointment_reminder",             label: "No-Show Interview",            group: "Reminder",   trigger: "3 Reminder – 2h / 24h / 72h nach verpasstem Termin" },
+  { key: "reminder_invite",                  label: "Registrierung abschließen",    group: "Reminder",   trigger: "Akzeptierte Bewerber ohne Account" },
+  { key: "reminder_complete_registration",   label: "Onboarding (Perso/Vertrag)",   group: "Reminder",   trigger: "Nach Registrierung ohne KYC/Vertrag" },
+  { key: "email_confirmation", keys: ["signup_confirmation", "reminder_confirm_email"], label: "E-Mail bestätigen", group: "Reminder", trigger: "Registrierung + Reminder bei unbestätigter Mail" },
   { key: "reminder_no_recent_booking",       label: "Keine Buchung (7 Tage)",       group: "Reminder",   trigger: "1 Reminder nach 7 Tagen ohne Auftragsbuchung" },
   { key: "chat_reminder",                    label: "Chat-Reminder (manuell)",      group: "Support",    trigger: "Wird vom Admin manuell ausgelöst" },
   { key: "password_reset",                   label: "Passwort zurücksetzen",        group: "Auth",       trigger: "User löst Reset aus" },
@@ -161,7 +162,16 @@ function AdminEmailCenterPage() {
           </div>
           <div className="divide-y">
             {ACTIVE_TEMPLATES.map(t => {
-              const s = perTemplate.get(t.key) ?? { sent: 0, failed: 0, pending: 0 };
+              const keys = t.keys ?? [t.key];
+              const s = keys.reduce((acc, key) => {
+                const item = perTemplate.get(key);
+                if (!item) return acc;
+                acc.sent += item.sent;
+                acc.failed += item.failed;
+                acc.pending += item.pending;
+                if (item.last && (!acc.last || item.last > acc.last)) acc.last = item.last;
+                return acc;
+              }, { sent: 0, failed: 0, pending: 0, last: undefined as string | undefined });
               const total = s.sent + s.failed + s.pending;
               const lastRel = s.last ? relativeTime(s.last) : null;
               return (

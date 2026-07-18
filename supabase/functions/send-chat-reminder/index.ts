@@ -60,7 +60,7 @@ serve(async (req) => {
       return json({
         error: `Diese Adresse ist gesperrt (Bounce: ${suppressed.reason}). Bitte direkt anrufen.`,
         suppressed: true,
-      }, 409);
+      }, 200);
     }
 
     // ⏱️ Rate-Limit: max. 1 Reminder / 24h pro Empfänger
@@ -81,7 +81,7 @@ serve(async (req) => {
         error: `Bereits vor ${hoursAgo}h ein Reminder gesendet. Bitte warte 24h zwischen Erinnerungen.`,
         skipped: true,
         lastSentAt: recent.created_at,
-      }, 409);
+      }, 200);
     }
 
     // Ungelesene Nachrichten zählen (vom Admin/Teamleiter an diesen Mitarbeiter)
@@ -91,7 +91,7 @@ serve(async (req) => {
       .eq("receiver_id", userId)
       .eq("read", false);
     if (!count || count === 0) {
-      return json({ error: "Keine ungelesenen Nachrichten – Erinnerung nicht nötig.", skipped: true }, 409);
+      return json({ error: "Keine ungelesenen Nachrichten – Erinnerung nicht nötig.", skipped: true }, 200);
     }
 
 

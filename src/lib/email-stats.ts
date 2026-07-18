@@ -45,6 +45,15 @@ export const EMAIL_TYPE_LABELS: Record<string, string> = {
   reminder_complete_registration: "Reminder · Onboarding",
   reminder_no_recent_booking: "Reminder · Keine Buchung",
   reminder_domain_recovery: "Reminder · Domain-Recovery",
+  bewerbung_magic_link: "Vermittlung · Interview-Einladung",
+  booking_confirmation: "Vermittlung · Terminbestätigung",
+  signup_confirmation: "E-Mail bestätigen",
+  chat_reminder: "Chat-Reminder",
+  vermittlung_no_booking_24h: "Vermittlung · Kein Termin 24h",
+  vermittlung_no_booking_72h: "Vermittlung · Kein Termin 72h",
+  vermittlung_no_show_24h: "Vermittlung · No-Show 24h",
+  vermittlung_registration_pending_24h: "Vermittlung · Registrierung offen 24h",
+  vermittlung_registration_pending_72h: "Vermittlung · Registrierung offen 72h",
 };
 
 export interface EmailStats {
