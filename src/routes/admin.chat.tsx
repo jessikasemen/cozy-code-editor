@@ -338,7 +338,7 @@ function AdminChatPage() {
     });
     setRemindingId(null);
     let responseData: any = data;
-    const errorContext = (error as any)?.context;
+    const errorContext = (error as any)?.context?.response ?? (error as any)?.context;
     if (errorContext && typeof errorContext.clone === "function") {
       try {
         responseData = await errorContext.clone().json();
