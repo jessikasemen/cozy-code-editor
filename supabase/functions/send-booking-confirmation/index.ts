@@ -103,6 +103,34 @@ function buildIcs(opts: { uid: string; title: string; description: string; start
   return lines.join("\r\n");
 }
 
+async function logEmailSend(
+  admin: any,
+  tenant: TenantRow,
+  appt: any,
+  app: any,
+  subject: string,
+  html: string | null,
+  status: "sent" | "failed",
+  error?: string,
+) {
+  try {
+    await admin.from("email_send_log").insert({
+      message_id: `${REMINDER_KIND}-${appt.id}`,
+      tenant_id: tenant.id,
+      template_name: REMINDER_KIND,
+      recipient_email: app.email,
+      status,
+      error_message: error ?? null,
+      rendered_subject: subject,
+      rendered_html: html,
+      sender_email: tenant.sender_email ?? tenant.smtp_username,
+      metadata: { appointment_id: appt.id, application_id: app.id, source: "send-booking-confirmation" },
+    });
+  } catch (e) {
+    console.warn("email_send_log insert skipped:", e);
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -225,6 +253,7 @@ serve(async (req) => {
           application_id: app.id, tenant_id: tenant.id, reminder_kind: REMINDER_KIND,
           recipient_email: app.email, status: "sent",
         }, { onConflict: "application_id,reminder_kind" });
+        await logEmailSend(admin, tenant, appt, app, subject, html, "sent");
         sent++; results.push({ id: appt.id, status: "sent" });
         await new Promise((r) => setTimeout(r, 3000));
       } catch (e: any) {
@@ -234,6 +263,7 @@ serve(async (req) => {
           application_id: app.id, tenant_id: tenant.id, reminder_kind: REMINDER_KIND,
           recipient_email: app.email, status: "failed", error: err,
         }, { onConflict: "application_id,reminder_kind" });
+        await logEmailSend(admin, tenant, appt, app, subject, html, "failed", err);
         results.push({ id: appt.id, status: "failed", error: err });
       }
     }
