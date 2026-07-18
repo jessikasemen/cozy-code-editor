@@ -85,11 +85,18 @@
 </section>
 
 <footer class="cp-foot">
-  <div class="cp-wrap cp-foot-wrap">
-    <span>© {{firmenname}}</span>
-    <span>{{contact_email}} · {{contact_phone}}</span>
-    <span><a href="{{impressum_url}}">Impressum</a> · <a href="{{datenschutz_url}}">Datenschutz</a></span>
+  <div class="cp-wrap cp-foot-wrap" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:24px;align-items:start;">
+    <div>
+      <h4 style="font-size:13px;font-weight:700;margin:0 0 10px;letter-spacing:.04em;text-transform:uppercase;opacity:.75;">Kontakt</h4>
+      {{contact_block}}
+    </div>
+    <div>
+      <h4 style="font-size:13px;font-weight:700;margin:0 0 10px;letter-spacing:.04em;text-transform:uppercase;opacity:.75;">Anbieterkennzeichnung</h4>
+      {{legal_block}}
+      <p style="margin:10px 0 0;font-size:13px;"><a href="{{impressum_url}}" style="color:inherit;text-decoration:underline;">Impressum</a> · <a href="{{datenschutz_url}}" style="color:inherit;text-decoration:underline;">Datenschutz</a></p>
+    </div>
   </div>
+  <div class="cp-wrap" style="margin-top:24px;padding-top:16px;border-top:1px solid rgba(255,255,255,.15);font-size:12px;opacity:.7;">© <span id="cp-year"></span> {{firmenname}}. Alle Rechte vorbehalten.</div>
 </footer>
 <script src="script.js"></script>
 </body>

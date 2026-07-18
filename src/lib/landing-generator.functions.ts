@@ -81,12 +81,54 @@ function applyPlaceholders(
   const b: Record<string, unknown> = { ...branding };
   const addrParts = [b.strasse as string, [b.plz as string, b.stadt as string].filter(Boolean).join(" ")]
     .filter(Boolean).join(", ");
+  // Rechts-Block (sichtbar im Footer): Firma, Adresse, GF, HRB, USt-ID, Kontakt.
+  // Ersetzt die "winzigen Impressum-Links" durch einen abmahnsicheren Klartext-Block.
+  const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, (c) => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!
+  ));
+  const legalLines: string[] = [];
+  if (branding.firmenname) legalLines.push(`<strong>${esc(branding.firmenname)}</strong>`);
+  if (branding.strasse) legalLines.push(esc(branding.strasse));
+  const plzStadt = [branding.plz, branding.stadt].filter(Boolean).join(" ");
+  if (plzStadt) legalLines.push(esc(plzStadt));
+  if (branding.telefon) legalLines.push(`Telefon: <a href="tel:${esc(branding.telefon)}" style="color:inherit;">${esc(branding.telefon)}</a>`);
+  if (branding.email) legalLines.push(`E-Mail: <a href="mailto:${esc(branding.email)}" style="color:inherit;">${esc(branding.email)}</a>`);
+  if (branding.geschaeftsfuehrer) legalLines.push(`Geschäftsführung: ${esc(branding.geschaeftsfuehrer)}`);
+  const regLine = [
+    branding.registergericht ? `Registergericht ${esc(branding.registergericht)}` : "",
+    branding.hrb ? `HRB ${esc(branding.hrb)}` : "",
+  ].filter(Boolean).join(", ");
+  if (regLine) legalLines.push(regLine);
+  if (branding.ust_id) legalLines.push(`USt-IdNr.: ${esc(branding.ust_id)}`);
+  else if (branding.steuernummer) legalLines.push(`Steuernummer: ${esc(branding.steuernummer)}`);
+  const legalBlock = legalLines.length
+    ? `<div class="lv-legal-block" style="font-size:14px;line-height:1.65;color:inherit;opacity:.9;">${legalLines.join("<br/>")}</div>`
+    : "";
+  const legalInlineParts = [
+    branding.firmenname,
+    branding.geschaeftsfuehrer ? `GF: ${branding.geschaeftsfuehrer}` : "",
+    branding.hrb ? `HRB ${branding.hrb}` : "",
+    branding.ust_id ? `USt-IdNr. ${branding.ust_id}` : "",
+  ].filter(Boolean).map(esc).join(" · ");
+  const contactBlock = (branding.firmenname || branding.telefon || branding.email)
+    ? `<div class="lv-contact-block" style="font-size:15px;line-height:1.7;color:inherit;">`
+      + (branding.firmenname ? `<div style="font-weight:700;font-size:16px;margin-bottom:4px;">${esc(branding.firmenname)}</div>` : "")
+      + (branding.strasse ? `<div>${esc(branding.strasse)}</div>` : "")
+      + (plzStadt ? `<div>${esc(plzStadt)}</div>` : "")
+      + (branding.telefon ? `<div style="margin-top:8px;"><strong>Telefon:</strong> <a href="tel:${esc(branding.telefon)}" style="color:inherit;font-size:17px;font-weight:600;">${esc(branding.telefon)}</a></div>` : "")
+      + (branding.email ? `<div><strong>E-Mail:</strong> <a href="mailto:${esc(branding.email)}" style="color:inherit;">${esc(branding.email)}</a></div>` : "")
+      + `</div>`
+    : "";
+
   const aliases: Record<string, string> = {
     address: addrParts,
     contact_address: addrParts,
     contact_email: (b.email as string) || "",
     contact_phone: (b.telefon as string) || "",
     sitz_stadt: (b.stadt as string) || "",
+    legal_block: legalBlock,
+    legal_inline: legalInlineParts,
+    contact_block: contactBlock,
   };
   const merged: Record<string, unknown> = { ...aliases, ...b, ...slotValues };
   let out = src;
@@ -132,6 +174,11 @@ window.TENANT_ID = "${escape(b.tenant_id ?? "")}";
 window.FLOW_TYPE = "${escape(b.flow_type)}";
 window.SOURCE_SLUG = "${escape(b.source_slug ?? "")}";
 window.WHATSAPP_NUMBER = "${escape(b.whatsapp_enabled ? (b.whatsapp_number ?? "").replace(/[^0-9]/g, "") : "")}";
+window.LANDING_FIRMENNAME = "${escape(b.firmenname ?? "")}";
+window.LANDING_DATENSCHUTZ_URL = "datenschutz.html";
+window.LANDING_IMPRESSUM_URL = "impressum.html";
+window.LANDING_CONTACT_EMAIL = "${escape(b.email ?? "")}";
+window.LANDING_CONTACT_PHONE = "${escape(b.telefon ?? "")}";
 </script>`;
   if (/<\/head>/i.test(html)) return html.replace(/<\/head>/i, block + "</head>");
   return block + html;
