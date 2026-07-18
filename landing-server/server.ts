@@ -26,6 +26,7 @@ const SUPABASE_PUBLISHABLE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY || process
 const PORTAL_API_ENDPOINT = process.env.PORTAL_API_ENDPOINT ?? "";
 const PORT = Number(process.env.PORT ?? 3001);
 const CACHE_TTL_MS = 60_000;
+const ASSET_VERSION = process.env.LANDING_ASSET_VERSION || process.env.RELEASE_VERSION || String(Date.now());
 
 if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
   console.error("[landing-server] SUPABASE_URL und SUPABASE_PUBLISHABLE_KEY müssen gesetzt sein.");
@@ -245,7 +246,14 @@ function renderDatenschutz(b: Record<string, any> = {}): string {
 function buildLegalPage(title: string, body: string, row: LandingRow): string {
   const firm = escapeHtml(row.branding?.firmenname || row.domain || "");
   const t = escapeHtml(title);
-  return `<!DOCTYPE html><html lang="de"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>${t} – ${firm}</title><meta name="robots" content="noindex,follow"/><link rel="stylesheet" href="/style.css"/><style>.legal-page{max-width:820px;margin:0 auto;padding:64px 24px 96px;font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;color:#1a1a1a;line-height:1.7}.legal-page h1{font-size:36px;margin:0 0 8px}.legal-page h3{font-size:18px;margin:28px 0 8px}.legal-page p{margin:0 0 12px}.legal-page a{color:#2563eb}.legal-back{display:inline-block;margin-bottom:24px;color:#64748b;text-decoration:none;font-size:14px}.legal-footer{max-width:820px;margin:0 auto;padding:24px;border-top:1px solid #e5e7eb;font-size:13px;color:#64748b;text-align:center}</style></head><body><main class="legal-page"><a href="/" class="legal-back">← Zurück zur Startseite</a><h1>${t}</h1>${body}</main><footer class="legal-footer">© ${new Date().getFullYear()} ${firm} · <a href="/impressum.html">Impressum</a> · <a href="/datenschutz.html">Datenschutz</a></footer></body></html>`;
+  return `<!DOCTYPE html><html lang="de"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>${t} – ${firm}</title><meta name="robots" content="noindex,follow"/><link rel="stylesheet" href="/style.css?v=${encodeURIComponent(ASSET_VERSION)}"/><style>.legal-page{max-width:820px;margin:0 auto;padding:64px 24px 96px;font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;color:#1a1a1a;line-height:1.7}.legal-page h1{font-size:36px;margin:0 0 8px}.legal-page h3{font-size:18px;margin:28px 0 8px}.legal-page p{margin:0 0 12px}.legal-page a{color:#2563eb}.legal-back{display:inline-block;margin-bottom:24px;color:#64748b;text-decoration:none;font-size:14px}.legal-footer{max-width:820px;margin:0 auto;padding:24px;border-top:1px solid #e5e7eb;font-size:13px;color:#64748b;text-align:center}</style></head><body><main class="legal-page"><a href="/" class="legal-back">← Zurück zur Startseite</a><h1>${t}</h1>${body}</main><footer class="legal-footer">© ${new Date().getFullYear()} ${firm} · <a href="/impressum.html">Impressum</a> · <a href="/datenschutz.html">Datenschutz</a></footer></body></html>`;
+}
+
+function versionThemeAssets(html: string): string {
+  const v = encodeURIComponent(ASSET_VERSION);
+  return html
+    .replace(/\bhref=["'](?:\.\/|\/)?style\.css["']/gi, `href="/style.css?v=${v}"`)
+    .replace(/\bsrc=["'](?:\.\/|\/)?script\.js["']/gi, `src="/script.js?v=${v}"`);
 }
 
 function renderHtml(row: LandingRow, host: string): { body: string; status: number } {
@@ -260,6 +268,7 @@ function renderHtml(row: LandingRow, host: string): { body: string; status: numb
   html = html.replace(/<section[^>]*id=["'](?:impressum|datenschutz)["'][\s\S]*?<\/section>\s*/gi, "");
   html = cleanEmptyMeta(html, row.branding, host);
   html = injectLandingConfig(html, row);
+  html = versionThemeAssets(html);
   // Logo/Favicon-Pfade auf /assets/* zeigen lassen (wir redirecten auf Storage)
   if (row.logo_url) html = html.replace(/assets\/logo\.[a-z]+/gi, "/assets/logo");
   if (row.favicon_url) html = html.replace(/assets\/favicon\.[a-z]+/gi, "/assets/favicon");
