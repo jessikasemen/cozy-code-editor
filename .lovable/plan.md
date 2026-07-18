@@ -1,91 +1,108 @@
 
-# Landing Pages seriöser & rechtskonform machen
+# Landing Pages: Nächste Ausbaustufe für Seriosität & Optik
 
-Ziel: Die berechtigten Bewerber-Einwände (Abmahnrisiko, „wirkt fake") beheben, ohne die Themes komplett neu zu bauen. Alle Änderungen laufen zentral über `_shared/form-section.js` + den Landing-Generator (`applyPlaceholders`) und den Footer/Template-Blöcken der Themes, damit ein einziger Resync alle 17 Themes gleichzeitig aktualisiert.
-
----
-
-## 1. Impressum & Datenschutz — abmahnsicher
-
-**Neuer sichtbarer Impressum-Block in jedem Footer** (statt nur `{{impressum_url}}`-Link):
-
-- Firma (Rechtsform), Straße + PLZ/Stadt, Geschäftsführer, HRB + Registergericht, USt-ID / Steuernummer, Telefon, E-Mail — alles aus `branding` in der DB (Felder existieren bereits: `hrb`, `registergericht`, `ust_id`, `steuernummer`, `geschaeftsfuehrer`, `strasse`, `plz`, `stadt`).
-- Neuer Platzhalter `{{legal_block}}` wird im `landing-generator.functions.ts` automatisch aus diesen Feldern zusammengebaut (HTML-formatiert). Themes müssen nur `{{legal_block}}` in den Footer einsetzen.
-- Zusätzlich `{{legal_inline}}` (Kurzform: „Firma XY GmbH · GF: … · HRB …") für schmale Footer.
-- Datenschutz- und Impressum-Links bleiben, werden aber im Footer klar sichtbar (14 px, unterstrichen, Kontrast ≥ 4.5:1) — keine „winzige graue Zeile" mehr.
-
-**Neue Route + Fallback für fehlende Impressum-URLs:** Wenn `impressum_url` leer ist, wird `{{impressum_url}}` auf `/impressum` gesetzt und der Generator legt eine statische `impressum.html` + `datenschutz.html` mit dem generierten Text an (nur wenn die Kunden keinen eigenen Link hinterlegen).
-
-## 2. DSGVO-Hinweis am Bewerbungsformular
-
-Direkt über dem Absende-Button im `_shared/form-section.js` (gilt für ALLE Themes gleichzeitig):
-
-- Pflicht-Checkbox „Ich habe die [Datenschutzerklärung]({{datenschutz_url}}) gelesen und willige in die Verarbeitung meiner Daten zum Zweck der Bewerbung ein." — Submit ist ohne Häkchen deaktiviert.
-- Kurzer Datenschutz-Absatz (aufklappbar via `<details>`): Wer erhält die Daten (`{{firmenname}}`), Zweck (Bewerbung), Speicherdauer (6 Monate nach Absage / bis Widerruf), Rechte (Auskunft, Berichtigung, Löschung, Widerruf jederzeit an `{{contact_email}}`), Rechtsgrundlage (Art. 6 Abs. 1 lit. b DSGVO).
-- Link zu AGB/Widerruf wird nur eingeblendet, wenn die entsprechenden URL-Felder gepflegt sind.
-
-## 3. Vertrauens-Elemente vor dem Formular
-
-Neuer Shared-Block `_shared/trust-section.js` (oder Template-Erweiterung), den jedes Theme direkt vor `#bewerbung-form` einbinden kann:
-
-- **„So geht's weiter in 3 Schritten"** (Bewerbung → Kurzes Kennenlernen → Vertragsangebot) — Icons als echte inline-SVGs, nicht Emojis.
-- **Ansprechpartner-Karte** direkt am Formular: Foto (`{{contact_person_avatar}}`), Klarname (`{{contact_person_name}}`), Rolle (`{{contact_person_role}}`), Telefon + E-Mail — mit `tel:`/`mailto:`-Links. Neue Felder in `branding` + Landing-Editor.
-- Fallback: wenn keine Ansprechpartner-Daten gepflegt, ganzer Block bleibt ausgeblendet (kein Fake).
-
-## 4. Zahlen, Recruiter-Name, Stock-Bilder — Fake-Wirkung reduzieren
-
-- **Stat-Kacheln** (`stat_1_value`, `kpi1_value`, …): Nur rendern, wenn Wert UND Quelle (`stat_1_source`) gepflegt sind. Sonst wird der ganze Stats-Block ausgeblendet — kein „500+ zufriedene Kunden" ohne Beleg.
-- **Recruiter-Name**: Default `Sabine Schneider` in `landing_pages.recruiter_name` wird entfernt (Migration setzt Default auf `NULL`). Wenn leer, zeigt der Booking-Header „mit unserem Recruiting-Team" statt einem erfundenen Namen. Im Landing-Editor wird das Feld als Pflichtfeld markiert, bevor der Booking-Flow aktiviert werden kann.
-- **Generische Claims** wie „Bereit für den nächsten Schritt?" werden Slot-basiert überschreibbar; der bisherige Hardcode aus `theme-tts-consultant/template.html` wandert in `{{cta_final_title}}` / `{{cta_final_body}}`.
-
-## 5. Booking-Modal seriöser
-
-Im Inline-Kalender (`_shared/form-section.js` → `renderBookingInline` + `renderConfirmed`):
-
-- Header bekommt Firmenlogo (`{{logo_url}}` via `state.schedule.logo_url`, Backend liefert) und, falls vorhanden, Recruiter-Foto (`recruiter_avatar_url` — Spalte existiert bereits laut Migration `20260630100000_landing_recruiter_avatar.sql`).
-- Neue Zeile „Ihre Daten werden ausschließlich zur Terminvereinbarung genutzt. Details siehe Datenschutzerklärung."
-- Booking-API (`src/routes/api/public/booking.ts`) liefert `logo_url`, `recruiter_avatar_url` und `datenschutz_url` mit im `schedule`-Response.
-
-## 6. Icons & Typografie entrümpeln
-
-- Alle Emoji-Icons (`☰`, `✉`, `›`, `⏱`, `€`, `☺`, `✦`, `★`, `◆`, `⬢`, `●`) in den Themes durch echte inline-SVGs ersetzen (16–24 px, `currentColor`). Betroffen: `theme-connect-people`, `theme-tts-consultant`, `theme-cle-beratung`, `theme-career-atlas`.
-- Der Burger-Button `☰` bekommt drei `<span>`-Striche (schon in `theme-cle-beratung` vorhanden — Pattern übernehmen).
-- **Font-Diversifikation**: Nicht global umstellen, aber `theme-cle-beratung` (aktuell Plus Jakarta) und `theme-connect-people` (DM Serif + Nunito) bleiben; `theme-tts-consultant` weg von Inter-only → `Fraunces` (Display) + `Inter` (Body); `theme-career-atlas` behält Fraunces/Inter. Ziel: kein Theme mehr mit „Inter überall".
-
-## 7. Footer-Kontaktblock groß
-
-Im `{{legal_block}}` zusätzlich (oder in einem parallelen `{{contact_block}}`):
-
-- Adresse in Groß (16 px, Bold-Zeile für Firmenname), Telefon als klickbarer `tel:`-Link (18 px), E-Mail als `mailto:`-Link, Öffnungszeiten (optional Slot `{{opening_hours}}`).
-- Alle Themes: Footer-Grid auf mind. 3 Spalten (Kontakt, Rechtliches, Links) — `theme-connect-people` und `theme-career-atlas` haben derzeit nur einen einzeiligen Footer, wird auf das Muster aus `theme-tts-consultant` umgestellt.
+Über die bereits umgesetzten Basics (Impressum-Footer, DSGVO-Checkbox, 3-Schritte-Trust-Strip) hinaus — hier meine priorisierte Ideenliste, sortiert nach Wirkung pro Aufwand.
 
 ---
 
-## Technische Details
+## A. Sofort sichtbare Vertrauens-Booster (hoher Impact)
 
-**Neue/geänderte Dateien:**
+1. **Recruiter-/Ansprechpartner-Karte am Formular**
+   Foto (rund, 96 px), Klarname, Rolle, Telefon (tel:-Link), „Antwortet meist innerhalb 2 h" — direkt links neben dem Formular. Fallback: Team-Foto der Firma. Nichts baut so schnell Vertrauen auf wie ein echtes Gesicht am Conversion-Punkt.
 
-1. `src/lib/landing-generator.functions.ts` — neue Aliases `legal_block`, `legal_inline`, `contact_block`, `contact_person_*`, `stat_*_source`-Filter. Optional statische `impressum.html`/`datenschutz.html` mit generiertem Inhalt.
-2. `src/landing-themes/_shared/form-section.js` — DSGVO-Checkbox + `<details>`-Kurzfassung, Trust-3-Schritte-Block, Ansprechpartner-Karte, Logo/Recruiter-Foto im Booking-Header, Datenschutz-Zeile.
-3. `src/routes/api/public/booking.ts` — `schedule`-Response um `logo_url`, `recruiter_avatar_url`, `datenschutz_url`, `firmenname` erweitern; `recruiter_name` fällt bei NULL auf `null` (Frontend rendert Team-Text).
-4. Alle 17 Theme-`template.html`: Footer-Block auf `{{legal_block}}` + `{{contact_block}}` umstellen, Emoji-Icons durch SVGs ersetzen, generische CTA-Texte auf Slots umziehen. Reihenfolge: erst `_shared` → dann die vier meistgenutzten Themes (`theme-tts-consultant`, `theme-cle-beratung`, `theme-career-atlas`, `theme-connect-people`), dann Rest.
-5. Neue Migration `supabase/manual-migrations/20260725000000_landing_trust_fields.sql`:
-   - `landing_pages`: `contact_person_name text`, `contact_person_role text`, `contact_person_phone text`, `contact_person_avatar_url text`, `opening_hours text`, `agb_url text`, `widerruf_url text`.
-   - `landing_pages.recruiter_name`: `DEFAULT NULL` (statt `'Sabine Schneider'`), bestehende `'Sabine Schneider'`-Werte auf `NULL` setzen (nur wo nie geändert — via Marker-Flag oder pauschal, wird beim User bestätigt).
-   - Grants + `NOTIFY pgrst`.
-6. Landing-Editor UI (`src/routes/admin.landing.*`): neue Felder (Ansprechpartner-Foto/Name/Rolle/Telefon, AGB/Widerruf-URLs, Öffnungszeiten, `stat_*_source`) im Formular ergänzen.
+2. **Social-Proof-Leiste über dem Formular**
+   Google-Sterne-Widget (⭐ 4.8 · 127 Bewertungen), Kununu-Score, „Seit 2015 am Markt", „850+ vermittelte Fachkräfte". Nur mit gepflegten Werten rendern (kein Fake).
 
-**Nicht Teil dieses Plans** (bewusst rausgehalten, um Scope zu halten):
+3. **Echte Testimonial-Sektion mit Foto + Vollname + Position**
+   Statt Stock-Zitate: 3 Karten mit Mitarbeiter-Foto, „Marco S., Elektroniker seit 2023", O-Ton in 2–3 Sätzen, Standort. Optional Video-Testimonial (60 s, autoplay muted).
 
-- Echte Kundenlogos / Google-Bewertungen / Auszeichnungen — die müssen die Tenants selbst hochladen; hier nur die Slot-Struktur (`{{trust_logo_1}}..{{trust_logo_6}}`, `{{google_rating_value}}`, `{{google_review_count}}`) im Template + Editor bereitstellen, damit sie einsetzbar sind, wenn Material da ist. Ohne gepflegte Werte bleibt der Block ausgeblendet.
-- Ersatz aller Stock-Hero-Bilder — kann pro Tenant im Editor gemacht werden.
+4. **Zertifikate-/Siegel-Leiste im Footer**
+   AZAV, DIN EN ISO 9001, „Great Place to Work", IHK-Mitgliedschaft, Kununu-„Top Company 2026". Als monochrome SVGs, 40 px hoch, ausgegraut bis Hover. Slot-basiert im Editor pflegbar.
 
-**Rollout:**
+5. **Kundenlogos / Einsatzbetriebe-Karussell**
+   „Unsere Bewerber arbeiten bei:" + 6–10 Logos in Graustufen. Baut sofort Substanz auf, auch wenn's nur regionale Betriebe sind.
 
-1. Migration einspielen (`deploy-backend.sh`).
-2. Themes im Editor als „Neu synchronisieren" markieren → Landing-Server zieht die neuen Templates.
-3. Tenants im Admin-Bereich bekommen einen roten Hinweis pro Landing, wenn Pflicht-Trust-Felder fehlen (Ansprechpartner, Impressum-Angaben).
+## B. Optik / Craftsmanship (mittlerer Aufwand, hohe Wirkung)
 
-**Aufwand:** ca. 1 größere Session — `_shared` + Generator + Booking-API + Migration in einem Rutsch, Theme-Templates parallel batch-editieren.
+6. **Emoji-Icons überall durch Inline-SVG-Icon-Set ersetzen**
+   Ein einheitliches Lucide-Set (24 px, `currentColor`, stroke 1.75) in allen 17 Themes. Betrifft Nav-Burger, Kontakt-Icons, Chevrons, Trust-Badges, Feature-Bullets. Wirkt sofort 2× hochwertiger.
 
-Soll ich so starten? Falls du zuerst nur (1)+(2) — also **Impressum-Block im Footer + DSGVO-Checkbox am Formular** — willst und den Rest in einer zweiten Runde, sag Bescheid, dann baue ich das zuerst und die Themes bleiben ansonsten unangetastet.
+7. **Font-Diversifikation pro Theme**
+   Aktuell zu viel „Inter überall". Vorschlag:
+   - Corporate/Personalservice → `Fraunces` (Display) + `Inter` (Body)
+   - Handwerk/Industrie → `Space Grotesk` + `IBM Plex Sans`
+   - Pflege/Sozial → `Instrument Serif` + `Work Sans`
+   - Tech/QA → `JetBrains Mono` (Akzent) + `Manrope`
+   Pro Theme fest verdrahtet, keine Slots — Konsistenz vor Wahlmöglichkeit.
+
+8. **Hero-Bilder: Overlay-Gradient + Rahmen-Kachel**
+   Aktuelle Stock-Hero-Bilder wirken flach. Standard-Behandlung: 12-px-Rundung, dezenter Schlagschatten (`0 20px 60px -20px rgba(0,0,0,.25)`), leichter Farbgradient-Overlay in der Primärfarbe (5 % Opacity), optional dekorative Blob-Shape dahinter. Zentral in CSS, betrifft alle Themes.
+
+9. **Section-Rhythmus mit „Eyebrow-Kicker" + dünnem Trennstrich**
+   Jede Sektion bekommt oben ein kleines Kicker-Label („// Über uns", „01 · Leistungen") + einen 40-px-Strich in Primärfarbe. Das Muster nutzen `tts-consultant` und `cle-beratung` bereits — auf alle Themes ausrollen für einheitliche Editorial-Anmutung.
+
+10. **Micro-Interactions (dezent!)**
+    - Buttons: `translateY(-2px)` + Schatten-Shift on hover
+    - Karten: 200-ms-Border-Farb-Übergang
+    - Scroll-Reveal (fade-up, 400 ms, IntersectionObserver, einmalig)
+    Zentral in `_shared/motion.js`. Kein Framer-Motion nötig, 30 Zeilen Vanilla-JS reichen. Keine Parallax-Effekte, kein Auto-Karussell — wirkt schnell billig.
+
+## C. Content-Struktur (verhindert „leer wirkende" Landings)
+
+11. **FAQ-Sektion mit 5–7 Fragen als Pflicht-Slot**
+    „Wie lange dauert das Verfahren?", „Was kostet mich das?", „Bin ich fest angestellt?", „Kann ich mich auch ohne Lebenslauf bewerben?". Native `<details>`, kein JS. Klärt Bedenken → weniger Absprünge, gleichzeitig SEO-Long-Tail.
+
+12. **„Was Sie erwartet"-Benefit-Grid (6 Kacheln)**
+    Tarifgehalt, Urlaubs-/Weihnachtsgeld, Fahrtkostenerstattung, Übernahmegarantie, Weiterbildung, Sozialleistungen. Icon + Titel + 1 Satz. Ersetzt generische „Warum wir?"-Blöcke.
+
+13. **Regional-/Standort-Karte**
+    Eingebettete OpenStreetMap (kein Google, kein Cookie-Consent nötig) mit Firmenpin + Anschrift daneben. Signalisiert „lokal, greifbar, real".
+
+14. **Blog-/News-Teaser (optional)**
+    3 aktuelle Beiträge unten. Nur einblenden, wenn ≥ 3 gepflegt. Zeigt „diese Firma ist aktiv, nicht tot".
+
+## D. Booking-Modal seriöser
+
+15. **Modal-Header mit Firmenlogo + Recruiter-Foto**
+    Booking-API liefert bereits `recruiter_avatar_url` (Migration vorhanden). Header wird zu: `[Logo] Termin mit [Foto] Max Mustermann · Recruiting`. Wirkt sofort persönlich statt anonym.
+
+16. **Confirmation-Screen aufwerten**
+    Nach Buchung: großer grüner Check, „Termin bestätigt", Kalender-Download-Buttons (`.ics`, Google, Outlook — als Icons), „Fügen Sie [Recruiter] zu Ihren Kontakten hinzu" (`.vcf`-Download), klare Anfahrt-/Videocall-Info aus `event_description`.
+
+17. **Datum/Uhrzeit-Grid feiner gestalten**
+    Aktuell 28-Tage-Liste wirkt tabellarisch. Umbau auf echten Monatskalender-Grid (7 Spalten), Tage mit freien Slots eingefärbt, Klick → Slot-Liste rechts daneben. Standard-Pattern à la Calendly/Cal.com.
+
+## E. Rechtliches / Compliance (kleiner Rest)
+
+18. **Cookie-Banner (nur wenn Tracking aktiv)**
+    Aktuell wird nichts getrackt — sobald Google Analytics / Meta Pixel als Slot dazukommt, muss ein Consent-Banner rein (Klaro oder self-built, ~2 kB). Vorbereitet lassen, aktivieren wenn Tracking-Slot gepflegt.
+
+19. **AGB-/Widerruf-Kurzseiten generieren**
+    Analog zu `impressum.html` / `datenschutz.html` auch `agb.html` + `widerruf.html` optional generieren, wenn Felder gepflegt. Footer verlinkt automatisch.
+
+20. **Accessibility-Basics**
+    Kontrast-Check aller Themes (WCAG AA), `alt`-Attribute pflichtig im Editor, `:focus-visible`-Ring in Primärfarbe, `prefers-reduced-motion` respektieren. Kostet 2 Stunden, ist aber ein starkes Seriositäts-Signal (und rechtlich ab 2025 Pflicht in DE via BFSG).
+
+## F. Editor-Verbesserungen (damit Kunden die Slots auch pflegen)
+
+21. **Landing-Editor: „Vertrauens-Check" mit Ampel**
+    Vor „Veröffentlichen" ein Checklist-Widget: Ansprechpartner-Foto ✅ · Impressum-Daten ✅ · ≥ 1 Testimonial ⚠️ · Zertifikate ❌ · Google-Bewertung ❌. Grün-gelb-rot. Landing kann veröffentlicht werden, aber der Kunde sieht, was fehlt.
+
+22. **Vorschau-Modus mit Mobile/Tablet/Desktop-Toggle im Editor**
+    Sicherstellt, dass Änderungen auf allen Größen geprüft werden bevor Deploy.
+
+---
+
+## Empfohlene Reihenfolge (falls du „alles" willst)
+
+**Sprint 1 (größter Impact, 1 Runde):** #1 Ansprechpartner-Karte, #6 Emoji→SVG-Ersatz, #15 Booking-Modal-Header, #10 Micro-Interactions, #8 Hero-Behandlung.
+
+**Sprint 2:** #2 Social-Proof-Leiste, #3 Testimonials, #11 FAQ, #4 Siegel-Leiste, #16 Confirmation-Screen.
+
+**Sprint 3:** #7 Font-Diversifikation pro Theme, #17 Kalender-Grid, #12 Benefit-Grid, #21 Vertrauens-Check im Editor.
+
+**Später bei Bedarf:** #13 Karte, #14 Blog-Teaser, #18 Cookie-Banner, #19 AGB/Widerruf, #20 A11y-Sweep, #22 Editor-Preview.
+
+---
+
+Sag mir, welche Punkte du willst — entweder „Sprint 1 komplett", oder pick einzelne Nummern. Ich bau's dann in Build-Mode um.
