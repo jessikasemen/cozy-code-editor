@@ -1,52 +1,41 @@
-## Ziel
-Kritischer End-to-End-Test: Für jeden Bewerber-Status prüfen, ob die richtige E-Mail an den richtigen Empfänger rausgeht — sowohl **Trigger-Seite** (App-Code / Cron) als auch **Delivery-Seite** (SMTP, Logs).
+## Aktueller Befund
 
-## Test-Matrix (Status → Template → Trigger → Empfänger)
+- **Reminder-Fehler:** Der Screenshot zeigt `InvalidWorkerCreation: worker boot error: failed to boot script: could not find an appropriate entrypoint`. Das ist kein SMTP-/Template-Fehler, sondern die Edge Function startet gar nicht. Der Button ruft `send-chat-reminder` auf. Im Repo existiert `supabase/functions/send-chat-reminder/index.ts`, aber live wirkt es so, als ob die Function im Backend-Container fehlt, falsch synchronisiert wurde oder der Functions-Container noch einen alten/kaputten Stand lädt.
+- **Frontend-Pfad:** Für den Portal-/Frontend-Server ist laut Deploy-Script **nicht** `/dev-server` der Zielpfad, sondern standardmäßig `/opt/apps/portal`. `/dev-server` ist der Editor-/Sandbox-Pfad hier in Lovable. Auf deinem Server solltest du das Portal-Deploy über `/opt/apps/portal/scripts/deploy.sh` ausführen.
+- **Landing-/Terminbuchungs-Loop:** Der Inline-Kalender lädt über die Landing-Seite `window.PORTAL_API` und baut daraus `/api/public/booking`. Der Code dafür ist vorhanden. Wenn nach Resync weiterhin die alte/loopende Oberfläche kommt, sind wahrscheinlich nicht alle drei Ebenen aktualisiert: Portal-Frontend, Backend/Functions/SQL und Landing-Renderer/Themes. Zusätzlich sehe ich eine mögliche Ursache im Buchungs-RPC: Slots dürfen mehrfach angezeigt werden, aber beim eigentlichen Insert kann noch eine Konfliktregel aus der DB aktiv sein, falls die Migration `20260722000000_booking_window_28_days.sql` nicht wirklich angewendet wurde.
 
-| # | Status / Event | Template | Trigger | Empfänger |
-|---|---|---|---|---|
-| 1 | Bewerbung eingegangen (Vermittlung) | `bewerbung_magic_link` | `POST /api/public/applications` | Bewerber |
-| 2 | Termin gebucht | `booking_confirmation` | Booking-API + `send-booking-confirmation` | Bewerber |
-| 3 | 30 Min vor Interview | `interview_invite_30min` | Cron `send-reminders-hourly` | Bewerber |
-| 4 | Kein Termin nach 7 Tagen | `no_booking_7d` | Cron `send-application-reminders` | Bewerber |
-| 5 | No-Show Interview | `no_show_interview` | Cron `auto_complete_appointments` | Bewerber |
-| 6 | Bewerber angenommen / Glückwunsch | `congrats_hired` | Portal-Aktion (Recruiter Button) | Bewerber |
-| 7 | Registrierung abschließen | `signup_complete_reminder` | Cron `process-invite-resend-queue` | Bewerber |
-| 8 | E-Mail bestätigen | `signup_confirmation` | Auth-Event → `send-signup-confirmation` | Bewerber |
-| 9 | Onboarding | `onboarding_welcome` | Nach Registrierung | Mitarbeiter |
-| 10 | Chat-Reminder (manuell) | `chat_reminder` | Admin-Button in `/admin/chat` | Bewerber |
+## Plan
 
-## Vorgehen (3 Phasen)
+1. **Chat-Reminder live wiederherstellen**
+   - Sicherstellen, dass `send-chat-reminder` wirklich auf den self-hosted Backend-Server nach `volumes/functions/send-chat-reminder/index.ts` synchronisiert wurde.
+   - Danach den Edge-Functions-Container neu starten.
+   - Optional: einen direkten `curl` gegen `/functions/v1/send-chat-reminder` testen, damit wir zwischen „Function bootet“ und „Versandlogik/SMTP“ unterscheiden.
 
-### Phase 1 — Read-Only Audit (SQL, keine Änderungen)
-Für jeden der 10 Punkte prüfen:
-- **Trigger existiert?** (Cron-Job aktiv / Code-Pfad vorhanden)
-- **Template im Code registriert?** (`template_name` matched)
-- **Letzter erfolgreicher Send** in den letzten 30 Tagen?
-- **Recipient-Mapping korrekt?** (Bewerber vs. Recruiter vs. Admin)
-- **Fehler-Rate?** (Ratio `failed` / `sent` in `email_send_log`)
+2. **Buchungs-Loop gezielt prüfen**
+   - Live im Browser-Netzwerk prüfen, ob beim Klick auf einen Slot `/api/public/booking?action=book` aufgerufen wird und welcher Status/Body zurückkommt.
+   - Falls `slot_taken`, `500` oder kein Request erscheint, jeweils den passenden Fix setzen:
+     - kein Request: Landing-JS/Resync/Cache-Problem,
+     - `slot_taken`: DB-Konfliktregel oder alte Buchungsfunktion noch aktiv,
+     - `500`: serverseitiger RPC-/Env-/API-Fehler.
 
-Ergebnis: Tabelle mit ✅/⚠️/❌ pro Zeile.
+3. **DB-Migration für Mehrfachbuchung verifizieren**
+   - Prüfen, ob die Overlap-Constraint auf `interview_appointments` live wirklich entfernt ist.
+   - Prüfen, ob `get_free_appointment_slots` live bereits die Version ohne Konfliktprüfung ist.
+   - Falls nicht: Migration erneut über das Backend-Deploy oder manuell anwenden.
 
-### Phase 2 — Recipient-Mapping-Check (Code-Audit)
-Für jede Edge-Function / jeden Trigger prüfen, ob der `to`-Parameter tatsächlich der erwartete Empfänger ist:
-- `send-reminders` → `candidate.email` (nicht `recruiter.email`)
-- `send-booking-confirmation` → `appointment.candidate_id → candidate.email`
-- `send-appointment-reminders` → gleicher Weg
-- Kein Cross-Tenant-Leak (Bewerber A bekommt keine Mail von Tenant B)
+4. **Deploy-Reihenfolge klarziehen**
+   - Portal/Frontend: auf Server 2 ausführen:
+     ```bash
+     cd /opt/apps/portal
+     bash scripts/deploy.sh
+     ```
+   - Backend/Functions/SQL: aus deinem lokalen Repo/Clone ausführen:
+     ```bash
+     bash scripts/deploy-backend.sh
+     ```
+   - Landing-Server/Themes: danach Landing-Renderer neu starten bzw. Themes resyncen, damit `/script.js` die aktuelle Inline-Buchung wirklich ausliefert.
 
-### Phase 3 — Live-Test-Vorschlag (optional, nur wenn du willst)
-Ein synthetischer Bewerber durchläuft alle Status, wir beobachten Logs. Alternativ: bestehende echte Bewerbungen der letzten 24h forensisch nachverfolgen (welche Mails hätten kommen sollen, welche kamen tatsächlich).
-
-## Was ich brauche
-Sag mir, welche Phase(n) du willst:
-- **A) Nur Phase 1** (schneller SQL-Audit, ~10 Min) — empfohlen als Start
-- **B) Phase 1 + 2** (SQL + Code-Review, gründlich)
-- **C) Alles inkl. Live-Test** (Phase 3 dauert länger, braucht Test-Bewerber)
-
-Und: soll ich Fixes gleich mit einbauen, wenn ich Lücken finde (z. B. falsches Template-Label, fehlender Cron), oder erst nur reporten?
-
-## Technische Details
-- SQL läuft gegen Backend (`docker exec supabase-db psql`)
-- Code-Audit: `send-reminders`, `send-booking-confirmation`, `send-signup-confirmation`, `send-appointment-reminders`, `process-invite-resend-queue`, `auto_complete_past_appointments`
-- Output: Markdown-Tabelle mit Status pro Template + konkrete Fix-Vorschläge bei ⚠️/❌
+5. **Nachweise nach dem Fix**
+   - Reminder-Button: Function bootet, liefert keinen `InvalidWorkerCreation` mehr.
+   - Landing-Buchung: Slot auswählen erzeugt einen erfolgreichen `book`-Call und zeigt „Termin bestätigt“.
+   - E-Mail-Flow: Nach Terminbuchung wird der Status in der Bewerbung gesetzt und die Bestätigung kann versendet werden.
