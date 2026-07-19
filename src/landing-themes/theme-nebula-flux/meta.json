@@ -1,0 +1,30 @@
+{
+  "id": "theme-nebula-flux",
+  "name": "Nebula Flux — Enterprise Tech Premium",
+  "description": "Enterprise-Grade Dark-Premium-Theme im Stil von OpenAI, Vercel, NVIDIA, IBM Quantum und Cloudflare. Volle Storyline: 3D-Device-Hero mit Parallax, animierte Mesh-Gradients & Grid-Layer, 10 Service-Kacheln mit Glow-Hover, 6-Schritt-Prozess-Timeline, Live-Dashboard-Mockup mit Charts & Heatmap, Unternehmens- & Tester-Bereiche, offene Projekt-Karten, animierte Kennzahlen, Glass-Testimonials, Fullscreen-CTA. Space Grotesk × Inter × JetBrains Mono. Ideal für QA/Testing, KI-, Cloud- oder Cybersecurity-Plattformen.",
+  "slots": [
+    { "key": "seo_title", "label": "SEO Titel", "type": "text", "default": "Qualität sichtbar machen — Premium Testing Platform" },
+    { "key": "seo_description", "label": "SEO Beschreibung", "type": "longtext", "default": "Professionelle Qualitätssicherung für Websites, Apps und digitale Produkte — durchgeführt von echten Testern und unterstützt durch moderne Analyseprozesse." },
+    { "key": "landing_domain", "label": "Domain (ohne https://)", "type": "text", "default": "example.com" },
+    { "key": "accent_color", "label": "Akzentfarbe (Hex — Cyan #22d3ee)", "type": "text", "default": "#22d3ee" },
+
+    { "key": "brand_name", "label": "Marke / Firmenname", "type": "text", "default": "NEBULA" },
+    { "key": "brand_tagline", "label": "Marke — Untertitel", "type": "text", "default": "Digital Quality Platform" },
+    { "key": "nav_cta", "label": "Nav Button", "type": "text", "default": "Projekt starten" },
+
+    { "key": "hero_eyebrow", "label": "Hero — Eyebrow", "type": "text", "default": "Next-Gen Quality Assurance" },
+    { "key": "hero_title", "label": "Hero — Headline", "type": "longtext", "default": "Qualität sichtbar machen. Vertrauen digital schaffen." },
+    { "key": "hero_subtitle", "label": "Hero — Untertitel", "type": "longtext", "default": "Professionelle Qualitätssicherung für Websites, Apps und digitale Produkte — durchgeführt von echten Testern und unterstützt durch moderne Analyseprozesse." },
+    { "key": "hero_cta_primary", "label": "Hero — Button primär", "type": "text", "default": "Jetzt Projekt starten" },
+    { "key": "hero_cta_secondary", "label": "Hero — Button sekundär", "type": "text", "default": "Tester werden" },
+
+    { "key": "cta_title", "label": "Final CTA — Headline", "type": "longtext", "default": "Jede digitale Erfahrung beginnt mit perfekter Qualität." },
+    { "key": "cta_sub", "label": "Final CTA — Untertitel", "type": "longtext", "default": "Starten Sie heute Ihr Testprojekt oder werden Sie Teil unseres Tester-Netzwerks." },
+    { "key": "cta_primary", "label": "Final CTA — Button primär", "type": "text", "default": "Projekt anfragen" },
+    { "key": "cta_secondary", "label": "Final CTA — Button sekundär", "type": "text", "default": "Kostenlos registrieren" },
+
+    { "key": "footer_company", "label": "Footer — Firmenname", "type": "text", "default": "Nebula Quality GmbH" },
+    { "key": "footer_email", "label": "Footer — E-Mail", "type": "text", "default": "hello@example.com" },
+    { "key": "footer_phone", "label": "Footer — Telefon", "type": "text", "default": "+49 30 1234 5678" }
+  ]
+}
