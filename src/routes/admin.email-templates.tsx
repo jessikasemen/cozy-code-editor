@@ -327,8 +327,10 @@ function AdminEmailTemplatesPage() {
   const [testing, setTesting] = useState(false);
   const [testEmail, setTestEmail] = useState("");
   const [limitedTemplateMode, setLimitedTemplateMode] = useState(false);
-  type TestTemplateKey = "employee_signup" | "reset" | "confirm" | "completion" | "no_booking" | "recovery_ma" | "chat" | "magic_link";
+  type TestTemplateKey = "employee_signup" | "reset" | "confirm" | "completion" | "no_booking" | "recovery_ma" | "chat" | "magic_link" | "application_received" | "booking_confirmation" | "app_no_booking" | "app_no_show" | "app_registration";
   const [testType, setTestType] = useState<TestTemplateKey>("employee_signup");
+  const [bulkResults, setBulkResults] = useState<Array<{ key: TestTemplateKey; label: string; ok: boolean; error?: string }>>([]);
+  const [bulkRunning, setBulkRunning] = useState(false);
   const { toast } = useToast();
 
   // Template state
