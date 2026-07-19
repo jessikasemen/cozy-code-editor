@@ -251,6 +251,7 @@ export const THEMES: ThemeFiles[] = [
   { id: tqrMeta.id, name: tqrMeta.name, description: tqrMeta.description, html: tqrHtml, css: tqrCss, js: tqrJs, slots: pickSlots(tqrMeta) },
   { id: tcpMeta.id, name: tcpMeta.name, description: tcpMeta.description, html: tcpHtml, css: tcpCss, js: tcpJs, slots: pickSlots(tcpMeta) },
   { id: tmpMeta.id, name: tmpMeta.name, description: tmpMeta.description, html: tmpHtml, css: tmpCss, js: tmpJs, slots: pickSlots(tmpMeta) },
+  { id: tqapMeta.id, name: tqapMeta.name, description: tqapMeta.description, html: tqapHtml, css: tqapCss, js: tqapJs, slots: pickSlots(tqapMeta) },
 ].map(withSharedForm);
 
 
