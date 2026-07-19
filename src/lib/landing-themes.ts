@@ -142,6 +142,11 @@ import tqtCss from "../landing-themes/theme-quantum-tech/style.css?raw";
 import tqtJs from "../landing-themes/theme-quantum-tech/script.js?raw";
 import tqtMeta from "../landing-themes/theme-quantum-tech/meta.json";
 
+import tnfHtml from "../landing-themes/theme-nebula-flux/template.html?raw";
+import tnfCss from "../landing-themes/theme-nebula-flux/style.css?raw";
+import tnfJs from "../landing-themes/theme-nebula-flux/script.js?raw";
+import tnfMeta from "../landing-themes/theme-nebula-flux/meta.json";
+
 
 
 
@@ -264,6 +269,7 @@ export const THEMES: ThemeFiles[] = [
   { id: tqapMeta.id, name: tqapMeta.name, description: tqapMeta.description, html: tqapHtml, css: tqapCss, js: tqapJs, slots: pickSlots(tqapMeta) },
   { id: tepMeta.id, name: tepMeta.name, description: tepMeta.description, html: tepHtml, css: tepCss, js: tepJs, slots: pickSlots(tepMeta) },
   { id: tqtMeta.id, name: tqtMeta.name, description: tqtMeta.description, html: tqtHtml, css: tqtCss, js: tqtJs, slots: pickSlots(tqtMeta) },
+  { id: tnfMeta.id, name: tnfMeta.name, description: tnfMeta.description, html: tnfHtml, css: tnfCss, js: tnfJs, slots: pickSlots(tnfMeta) },
 ].map(withSharedForm);
 
 
