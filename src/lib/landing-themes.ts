@@ -132,6 +132,11 @@ import tqapCss from "../landing-themes/theme-qa-platform-premium/style.css?raw";
 import tqapJs from "../landing-themes/theme-qa-platform-premium/script.js?raw";
 import tqapMeta from "../landing-themes/theme-qa-platform-premium/meta.json";
 
+import tepHtml from "../landing-themes/theme-editorial-premium/template.html?raw";
+import tepCss from "../landing-themes/theme-editorial-premium/style.css?raw";
+import tepJs from "../landing-themes/theme-editorial-premium/script.js?raw";
+import tepMeta from "../landing-themes/theme-editorial-premium/meta.json";
+
 
 
 
@@ -252,6 +257,7 @@ export const THEMES: ThemeFiles[] = [
   { id: tcpMeta.id, name: tcpMeta.name, description: tcpMeta.description, html: tcpHtml, css: tcpCss, js: tcpJs, slots: pickSlots(tcpMeta) },
   { id: tmpMeta.id, name: tmpMeta.name, description: tmpMeta.description, html: tmpHtml, css: tmpCss, js: tmpJs, slots: pickSlots(tmpMeta) },
   { id: tqapMeta.id, name: tqapMeta.name, description: tqapMeta.description, html: tqapHtml, css: tqapCss, js: tqapJs, slots: pickSlots(tqapMeta) },
+  { id: tepMeta.id, name: tepMeta.name, description: tepMeta.description, html: tepHtml, css: tepCss, js: tepJs, slots: pickSlots(tepMeta) },
 ].map(withSharedForm);
 
 
