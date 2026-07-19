@@ -127,6 +127,11 @@ import tmpCss from "../landing-themes/theme-midnight-premium/style.css?raw";
 import tmpJs from "../landing-themes/theme-midnight-premium/script.js?raw";
 import tmpMeta from "../landing-themes/theme-midnight-premium/meta.json";
 
+import tqapHtml from "../landing-themes/theme-qa-platform-premium/template.html?raw";
+import tqapCss from "../landing-themes/theme-qa-platform-premium/style.css?raw";
+import tqapJs from "../landing-themes/theme-qa-platform-premium/script.js?raw";
+import tqapMeta from "../landing-themes/theme-qa-platform-premium/meta.json";
+
 
 
 
