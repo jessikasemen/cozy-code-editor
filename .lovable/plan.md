@@ -1,81 +1,67 @@
 ## Ziel
 
-Ein neues Landing-Page-Theme **"Editorial Premium"** hinzufügen, das sich bewusst von den bestehenden 19 SaaS-Themes abhebt — editorial, magazinartig, hochwertig, mit großer Typografie, viel Weißraum und dezenten Animationen.
+1. **E-Mail Center Test-Button** — für jedes aktive Template ein "Test an mich senden" ermöglichen, inkl. Live-Vorschau.
+2. **Diagnose Bewerbungsmail-Fehler** (19.07., 11:27) — herausfinden, warum `application_received` fehlgeschlagen ist.
 
-## Was gebaut wird
+---
 
-**Neuer Theme-Ordner:** `src/landing-themes/theme-editorial-premium/`
-- `template.html` — Semantischer Aufbau mit editierbaren Slots (`data-editable`)
-- `style.css` — Design-System (Tokens, Typografie, Layout, Dark/Light Mode)
-- `script.js` — Scroll-Animationen (IntersectionObserver), Number-Counter, Parallax
-- `meta.json` — Slot-Registry für den Landing-Generator
-- Illustrationen als inline SVG im Template (Geräte, Lupe, Checklisten, abstrakte Formen)
+## Teil 1 — E-Mail Center testen
 
-**Neue Form-Section-Variante:** `src/landing-themes/_shared/form-section-editorial.{html,css}` — passend zum editorial Look (großzügig, serifenlastig, dezenter Akzent).
+**Aktueller Stand:** In `src/routes/admin.email-templates.tsx` existiert bereits ein Test-Send-Bereich, der aber nur 8 Templates abdeckt (`employee_signup`, `reset`, `confirm`, `completion`, `no_booking`, `recovery_ma`, `chat`, `magic_link`). Es fehlen die wichtigsten Bewerber-Templates:
+- `application_received` (Bewerbungsbestätigung)
+- `booking_confirmation` (Terminbestätigung mit .ics)
+- `app_no_booking` (Bewerber ohne Termin)
+- `app_no_show` (Bewerber nicht erschienen)
+- `app_registration` (Registrierungs-Erinnerung nach Zusage)
+- `recovery_ma` bzw. `recovery_mitarbeiter` (Umzug)
 
-**Registrierung:** `src/lib/landing-themes.ts` erweitern (Imports + Registry-Eintrag inkl. Form-Variante).
+**Umsetzung:**
 
-## Design-Direktion
+- Test-Panel in `admin.email-templates.tsx` erweitern:
+  - Alle Template-Keys in ein einziges Dropdown „Template auswählen" packen (aus einem zentralen Katalog-Array), inkl. der oben fehlenden.
+  - Button **„An alle aktiven Templates testen"** — schickt in Reihe je eine `[TEST]`-Mail pro Template an die eingetragene Adresse, mit Sammel-Report (✅/❌ pro Template) statt einzelner Toasts.
+  - Ergebnis-Liste (Template, Status, Fehlermeldung) direkt unter dem Panel — 60s sichtbar, damit man alle Ausgänge auf einen Blick sieht.
+- Passende Dummy-Platzhalter pro Template (z.B. `appointment_date`, `calendly_link`, `partner_name`) einmalig zentral definieren, damit Templates mit Bewerber-Variablen nicht als „Roh-Platzhalter" ankommen.
+- Betreff jeder Test-Mail bekommt Präfix `[TEST]` (bereits vorhanden), Adressat = eingetragene Adresse + Button „Meine E-Mail übernehmen" (bereits vorhanden).
 
-**Farbwelt (dezent, dezent, dezent):**
-- Base: `#ffffff` / `#f7f5f0` (Sand) / `#eeece6` (Hellgrau) / `#1a1a1a` (Anthrazit) / `#000`
-- Akzent: **Royal Blue** `#1e40ff` (dezent, nur für CTA + wenige Highlights)
-- Nur sanfte Gradients (radial, low-opacity)
+Keine neuen DB-Tabellen, keine neue Edge-Function — nur der bestehende `send-invitation-email`-Aufruf mit `templateName`.
 
-**Typografie:**
-- Headlines: `Fraunces` (Serif Display, variable) — sehr groß (clamp bis 8rem), enges Tracking
-- Body: `Inter Tight` / `General Sans`-Feel via `Inter` (500)
-- Labels/Nummern: `JetBrains Mono` für "01 / 02 / 03" Kapitel-Nummerierung
+---
 
-**Layout-Moves:**
-- Asymmetrische 12-col Grids, Content bricht bewusst aus
-- Große Chapter-Nummern links am Rand ("01 — Warum")
-- Überlappende Elemente (Bild ragt in Text hinein)
-- Sehr viel Whitespace (Section-Padding 10-16rem vertikal)
-- Horizontale Sektionen für Leistungen (nicht Cards)
+## Teil 2 — Diagnose „Bewerbungsmail fehlgeschlagen · 19.07., 11:27"
 
-## Sektionen (Storytelling-Flow)
+**Erste Schritte** (rein lesend, kein Code):
 
-1. **Hero** — Split-Layout: links große Headline "Digitale Qualität entscheidet…", rechts eine komponierte SVG-Illustration (Devices + Lupe + Check-Siegel + schwebende Kreise)
-2. **Kapitel 01 — Warum Qualität entscheidet** — Editorial-Textblock + große Illustration rechts, Marginal-Note links
-3. **Kapitel 02 — Prüfprozess** — Große nummerierte Schritte (01–04) mit Icons, vertikal gestapelt, jede Nummer als Display-Type
-4. **Kapitel 03 — Vorher / Nachher** — Split-Screen mit animiertem Slider/Fade, "Vorher" (fehlerhaft) ↔ "Nachher" (poliert)
-5. **Kapitel 04 — Leistungen** — 4 horizontale Full-Width-Bänder (Web / App / Software / Reports), jeweils mit Illustration links, Text+CTA rechts, alternierend
-6. **Zahlen** — Riesige animierte Counter (25.000+ / 98% / 1.500+ / 40+), 4-spaltig, minimalistisch
-7. **Tester werden** — Emotionaler Block mit Bildkomposition, Headline groß, CTA
-8. **Unternehmen** — Illustrationen-Wall (Website/App/Cloud/Bug/Report als komponierte SVG)
-9. **Final CTA** — Full-Bleed, Headline "Qualität ist kein Zufall…", 2 Buttons, dezente Licht-Gradients im Bg
-10. **Footer** — Reduziert, viel Whitespace, klare Struktur (inkl. Impressum/DSGVO über zentrale Injection)
-11. **Formular** — Editorial-Variante der Form-Section
+1. `reminder_log` per SQL prüfen für Zeitraum 19.07. 11:20–11:35, `template = 'application_received'`, `status = 'failed'`.
+   → Feld `error` enthält den konkreten Grund (SMTP down, `confirmation_action_link_missing`, `tenant_lookup_failed`, `preflight`-Fehler, HTTP-Statuscode der Edge-Function …).
+2. Edge-Function-Logs `send-invitation-email` für denselben Zeitraum (bei Self-Hosted Supabase über `docker logs supabase-edge-functions` bzw. `supabase functions logs`).
+3. Betroffene `applications`-Zeile prüfen: `email`, `tenant_id`, `portal_url`, `flow_type`, `is_test`, `landing_page_id` — damit klar ist, ob z.B. der Portal-Link oder Booking-Link fehlte (siehe Codepfad in `src/routes/api/public/applications.ts:636–684`).
 
-## Animationen (dezent, hochwertig)
+**Häufige Ursachen laut Codepfad:**
+- `confirmation_action_link_missing` — weder Booking-Link noch Portal-URL bekannt (Tenant hat keine `primary_domain`, Landing setzt keine).
+- `tenant_lookup_failed` / `emails_paused` — Tenant deaktiviert oder SMTP pausiert.
+- `send-invitation-email HTTP 5xx` — SMTP-Credentials falsch/abgelaufen, Rate-Limit.
+- `mail_function_env_missing` — `SUPABASE_URL`/`SERVICE_ROLE_KEY` in TanStack-Server-Runtime fehlt.
 
-- **Text-Fade+Rise** on scroll (IntersectionObserver, 40px translateY, 800ms ease-out)
-- **Number-Counter** — animierte Zählung ab Sichtbarkeit
-- **Parallax** auf Hero-Illustration und Chapter-Bildern (transform: translateY basierend auf scrollY)
-- **Mouse-Move** auf Hero — schwebende Kreise reagieren dezent (max 20px)
-- **Vorher/Nachher** — Clip-Path-Reveal beim Scroll
-- Keine überladenen Effekte, alles unter 800ms, cubic-bezier(0.4, 0, 0.2, 1)
+**Fix hängt vom gefundenen Grund ab** — wird nach der SQL-Abfrage nachgezogen. Kein spekulativer Fix vorab, damit wir nicht die falsche Ursache patchen.
 
-## Editierbarkeit
+---
 
-Alle Texte, Headlines, Zahlen und CTA-Labels über `data-editable="slot-key"` im Landing-Generator editierbar (~80 Slots). Illustrationen bleiben statisch (inline SVG).
+## Technische Notizen
 
-## Zentrale Injection
+- Datei: `src/routes/admin.email-templates.tsx` (Panel-Erweiterung um alle Templates + Sammel-Report).
+- Keine Migration nötig.
+- SQL für Diagnose (Beispiel, wird via Supabase-SQL-Tab ausgeführt):
 
-Kompatibel mit dem bestehenden `insertBeforeAnchor()`-System — Trust/Privacy/Impressum-Blöcke werden über die zentrale Landing-Generator-Logik automatisch injiziert. Anker (`data-inject-anchor`) sind vor Footer und CTA gesetzt.
+```sql
+select sent_at, email, tenant_id, reminder_type, status, error
+from reminder_log
+where reminder_type = 'application_received'
+  and sent_at between '2026-07-19 09:00' and '2026-07-19 12:00'
+order by sent_at desc;
+```
 
-## Technisches
+## Reihenfolge
 
-- Responsive (Mobile-First, Breakpoints 640 / 1024 / 1280)
-- Light + Dark Mode via `prefers-color-scheme` + CSS-Variablen
-- Fonts via Google Fonts `<link>` im Template-Head (Fraunces + Inter + JetBrains Mono)
-- SEO: `<title>`, `<meta description>`, OG-Tags im Template
-- Barrierearm: semantisches HTML, `aria-label`, kontrastreiche Textfarben, `prefers-reduced-motion` respektiert
-- Keine JS-Frameworks — vanilla, ~4-6 KB
-
-## Nicht Teil dieses Plans
-
-- Keine Änderungen an bestehenden Themes
-- Keine neuen Datenbank-Felder (nutzt bestehende Landing-Config)
-- Keine Backend-/Migration-Änderungen
+1. Diagnose-SQL laufen lassen → Ursache bestätigen → gezielten Fix committen.
+2. Danach E-Mail-Center-Erweiterung ausrollen, damit du künftig alle Templates auf Knopfdruck durchtesten kannst.
