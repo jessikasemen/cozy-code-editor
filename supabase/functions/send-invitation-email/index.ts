@@ -344,6 +344,22 @@ async function verifyOrPause(admin: any, tenant: any, transporter: any): Promise
       last_verify_at: new Date().toISOString(), last_verify_ok: true, updated_at: new Date().toISOString(),
     });
     if (healthOkErr) console.warn("[send-invitation-email] smtp health write skipped:", healthOkErr.message ?? healthOkErr);
+    // Auto-Unpause: wenn Tenant zuvor durch das auto:smtp_verify-System pausiert
+    // wurde und der Verify jetzt wieder klappt, geben wir den Versand wieder frei.
+    if (tenant.emails_paused && tenant.emails_paused_by === "auto:smtp_verify") {
+      try {
+        await admin.from("tenants").update({
+          emails_paused: false, emails_paused_at: null,
+          emails_paused_reason: null, emails_paused_by: null,
+        }).eq("id", tenant.id);
+        await admin.from("activity_log").insert({
+          action: "emails_auto_reaktiviert", entity_type: "tenant", entity_id: tenant.id,
+          comment: "SMTP-Verify wieder erfolgreich — Versand automatisch reaktiviert.",
+        }).then(() => {}, () => {});
+      } catch (unpauseErr: any) {
+        console.warn("[send-invitation-email] auto-unpause skipped:", unpauseErr?.message ?? unpauseErr);
+      }
+    }
     return { ok: true };
   } catch (e: any) {
     const reason = String(e?.message ?? e);
