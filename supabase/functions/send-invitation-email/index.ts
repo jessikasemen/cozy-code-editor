@@ -99,11 +99,35 @@ serve(async (req) => {
       return json({ error: "Tenant hat keine vollständige SMTP-Konfiguration" }, 400);
     }
     if (tenant.emails_paused) {
-      return json({
-        error: `E-Mail-Versand für diesen Mandanten ist pausiert${tenant.emails_paused_reason ? `: ${tenant.emails_paused_reason}` : ""}.`,
-        paused: true,
-      }, 503);
+      // Nur noch manuell gesetzte Tenant-Pausen respektieren (kein Auto-Pause mehr).
+      if (tenant.emails_paused_by && tenant.emails_paused_by !== "auto:smtp_verify") {
+        return json({
+          error: `E-Mail-Versand für diesen Mandanten ist manuell pausiert${tenant.emails_paused_reason ? `: ${tenant.emails_paused_reason}` : ""}.`,
+          paused: true,
+        }, 503);
+      }
+      // Alte Auto-Pausen ignorieren — wir clearen sie unten still.
+      try {
+        await supabaseAdmin.from("tenants").update({
+          emails_paused: false, emails_paused_at: null,
+          emails_paused_reason: null, emails_paused_by: null,
+        }).eq("id", tenant.id);
+      } catch { /* egal */ }
     }
+
+    // --- Recipient-Suppression: 3 Fails in Folge → dauerhaft gesperrt ---
+    try {
+      const { data: sup } = await supabaseAdmin
+        .from("email_recipient_failures")
+        .select("suppressed_at, consecutive_failures, last_error")
+        .eq("recipient_email", to)
+        .maybeSingle();
+      if (sup?.suppressed_at) {
+        const reason = `recipient_suppressed_after_${sup.consecutive_failures}_fails: ${sup.last_error ?? "unbekannt"}`;
+        await logSend(supabaseAdmin, tenant.id, to, "(gesperrt)", "", tenant.sender_email ?? tenant.smtp_username, "skipped", reason, { template_name: templateNameOverride || "invitation" });
+        return json({ error: reason, suppressed: true }, 409);
+      }
+    } catch (e) { console.warn("[send-invitation-email] suppression check skipped:", (e as any)?.message ?? e); }
 
     const senderName = tenant.sender_name ?? tenant.name;
     const senderEmail = tenant.sender_email ?? tenant.smtp_username;
@@ -221,6 +245,7 @@ ${renderedBody.hasCta ? "" : `<table cellpadding="0" cellspacing="0" align="cent
     const verifyRes = await verifyOrPause(supabaseAdmin, tenant, transporter);
     if (!verifyRes.ok) {
       await logSend(supabaseAdmin, tenant.id, to, subject, html, senderEmail, "failed", verifyRes.reason, smtpMeta);
+      await bumpRecipientFailure(supabaseAdmin, to, tenant.id, verifyRes.reason ?? "smtp_verify_failed");
       return json({ error: `SMTP-Verbindung fehlgeschlagen: ${verifyRes.reason}`, paused: verifyRes.paused }, 502);
     }
 
@@ -233,10 +258,12 @@ ${renderedBody.hasCta ? "" : `<table cellpadding="0" cellspacing="0" align="cent
         html,
       });
       await logSend(supabaseAdmin, tenant.id, to, subject, html, senderEmail, "sent", undefined, { ...smtpMeta, message_id: info?.messageId ?? null });
+      await resetRecipientFailure(supabaseAdmin, to);
       return json({ success: true }, 200);
     } catch (sendErr: any) {
       const reason = String(sendErr?.message ?? sendErr);
       await logSend(supabaseAdmin, tenant.id, to, subject, html, senderEmail, "failed", reason, smtpMeta);
+      await bumpRecipientFailure(supabaseAdmin, to, tenant.id, reason);
       return json({ error: `E-Mail konnte nicht gesendet werden: ${reason}` }, 502);
     }
   } catch (err: any) {
@@ -315,6 +342,48 @@ function renderTemplateBody(template: string, phMap: Record<string, string>, bra
   flushList();
 
   return { html: parts.join("\n"), hasCta };
+}
+
+const SUPPRESS_AFTER_FAILS = 3;
+
+async function bumpRecipientFailure(admin: any, email: string, tenantId: string, reason: string) {
+  try {
+    const key = email.toLowerCase().trim();
+    const { data: existing } = await admin
+      .from("email_recipient_failures")
+      .select("consecutive_failures")
+      .eq("recipient_email", key)
+      .maybeSingle();
+    const next = (existing?.consecutive_failures ?? 0) + 1;
+    const suppress = next >= SUPPRESS_AFTER_FAILS ? new Date().toISOString() : null;
+    await admin.from("email_recipient_failures").upsert({
+      recipient_email: key,
+      tenant_id: tenantId,
+      consecutive_failures: next,
+      last_failed_at: new Date().toISOString(),
+      last_error: reason.slice(0, 500),
+      suppressed_at: suppress ?? undefined,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "recipient_email" });
+    // suppressed_at NUR setzen, wenn Schwelle erreicht — sonst nicht zurücksetzen wenn schon gesperrt
+    if (suppress) {
+      await admin.from("email_recipient_failures")
+        .update({ suppressed_at: suppress })
+        .eq("recipient_email", key)
+        .is("suppressed_at", null);
+    }
+  } catch (e) { console.warn("[send-invitation-email] bumpRecipientFailure skipped:", (e as any)?.message ?? e); }
+}
+
+async function resetRecipientFailure(admin: any, email: string) {
+  try {
+    const key = email.toLowerCase().trim();
+    await admin.from("email_recipient_failures").upsert({
+      recipient_email: key,
+      consecutive_failures: 0,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "recipient_email" });
+  } catch { /* egal */ }
 }
 
 async function logSend(admin: any, tenantId: string, to: string, subject: string, html: string, senderEmail: string, status: string, error?: string, metadata?: Record<string, unknown>) {

@@ -1,119 +1,95 @@
+## Ziel
 
-## Was wir sicher wissen (aus deinem SQL-Output)
+Nie wieder blockiert ein einzelner SMTP-Hänger alle Bewerber eines Tenants. Stattdessen wird nur die **konkrete Empfänger-Adresse** gesperrt, nach der wirklich 3× hintereinander die Zustellung fehlgeschlagen ist.
 
-**Alle 5 Bewerber gehören zu Tenant `ad57153e-…ec375`.** Die erste Zeile nennt den Grund im Klartext:
+## Was du dir gespart hast — und warum
 
-> `tenant_emails_paused: SMTP-Verify 3x fehlgeschlagen: verify timeout 8s`
+Der geplante Tab „Fehlgeschlagene Mails" wird **nicht gebaut**. Begründung, damit du es nachvollziehen kannst:
 
-Was hier passiert ist, in einfachen Worten:
+- Nutzen wäre nur gewesen: failed rows aus `email_send_log` sehen + „erneut senden"-Button. Die Info bekommst du auch über den bestehenden Bewerber-Screen (die Warnung „⚠ Bewerbungsmail fehlgeschlagen" die du im Screenshot hattest) und über die Live-Simulation.
+- Der eigentliche Grund, warum wir den Tab wollten (5 Bewerber wegen Tenant-Pause blockiert), fällt weg — sobald es keine Tenant-Pause mehr gibt, ist ein Batch-Resend-UI überflüssig.
+- Für die 5 offenen Bewerber vom 19.07. baue ich stattdessen ein **einmaliges Nachzieh-Skript** (siehe Schritt 4).
 
-1. Vor jeder E-Mail fragt das System den SMTP-Server: "Bist du da?" mit **8 Sekunden Timeout**.
-2. Bei diesem Tenant hat das **3× hintereinander länger als 8s** gedauert.
-3. Ein Schutzmechanismus hat den Tenant daraufhin **automatisch pausiert** (`emails_paused=true`).
-4. Ab diesem Moment werden **alle Mails dieses Tenants blockiert** — ohne echten Sendeversuch. Die 4 leeren Fehlermeldungen darunter sind genau dieselbe Ursache, nur mit anderem/mehrzeiligem Reason-Text.
+Falls du in Zukunft doch mal einen Überblick über fehlgeschlagene Sendungen willst, ergänzen wir das in der Live-Simulation — kein eigener Tab nötig.
 
-Das ist **kein Mailserver-Ausfall im eigentlichen Sinn**, sondern:
-- entweder war der SMTP wirklich kurz träge (Netz/Provider), 
-- oder der 8s-Preflight ist einfach zu aggressiv,
-- **und** es gibt keinen automatischen "Aufwach"-Mechanismus: sobald pausiert, bleibt pausiert bis manuell entpaust.
+## Änderungen
 
-Und: die spezifische Tabellenspalte `smtp_config` gibt es nicht (die SMTP-Daten liegen direkt in `tenants.smtp_host` / `smtp_username` / …). Deshalb Query 1 der Fehler — nicht wichtig für das Problem, nur meine Query war falsch.
+### 1) Tenant-Pause komplett entfernen
 
----
+In allen 5 Edge Functions (`send-invitation-email`, `send-reminders`, `send-signup-confirmation`, `send-password-reset`, `resend-signup-confirmation`):
 
-## Was ich baue
+- Die Logik „nach N fehlgeschlagenen SMTP-Verifys `tenants.emails_paused = true` setzen" wird gelöscht.
+- SMTP-Verify-Timeout bleibt auf den kürzlich erhöhten 15s.
+- Der Preflight-Check in `src/routes/api/public/applications.ts:649` und an ähnlichen Stellen liest `emails_paused` nicht mehr — das Feld wird ignoriert.
+- `tenants.emails_paused` bleibt als Spalte bestehen (falls du in Not mal manuell einen Tenant komplett stumm schalten willst), wird aber automatisch nie mehr gesetzt.
+- Die auto-collected `tenant_smtp_health`-Zähler bleiben nur noch für Reporting, ohne Auto-Aktion.
 
-### 1) Sofortmaßnahme — Tenant entpausen + 5 Bewerbungsmails nachschicken
+### 2) Neue Sperr-Logik: 3 Fails pro Empfänger → dauerhaft blockieren
 
-Ein neuer Admin-Bereich **„Fehlgeschlagene Mails"** (`/admin/email-templates` → neuer Tab):
+Neue Migration + Logik in `send-invitation-email` (und den 4 Schwester-Functions):
 
-- Liste aller `email_send_log`-Einträge mit `status='failed'` (Filter: letzte 7/30 Tage, Template, Tenant)
-- Pro Zeile: Empfänger, Template, Fehler, **„Erneut senden"**-Button (single) 
-- Header: **„Alle sichtbaren erneut senden"** (Batch, mit Zwischenzähler)
-- Beim erneuten Senden wird zuerst geprüft, ob der Tenant noch pausiert ist — dann Warnung mit **„Tenant jetzt entpausen"**-Button
-- Für die 5 konkreten Bewerber vom 19.07. bedeutet das: Tenant einmal entpausen → „Alle erneut senden" drücken → fertig.
+**Zähler pro Empfänger**
+Neue Tabelle `email_recipient_failures`:
+- `recipient_email` (unique)
+- `tenant_id`
+- `consecutive_failures` (int)
+- `last_failed_at`, `last_error`
+- `suppressed_at` (nullable — gesetzt sobald 3 erreicht)
 
-### 2) Retry-Policy — nie wieder stille Verluste
+**Vor jedem Send:**
+Ist die Adresse in `email_recipient_failures.suppressed_at IS NOT NULL` → sofort abbrechen, in `email_send_log.status='skipped'` mit Grund `recipient_suppressed_after_3_fails`.
 
-**Neue Tabelle `email_retry_queue`** (analog zur bestehenden `invite_resend_queue`, aber für **alle** Templates, nicht nur Einladungen). Regel:
+**Nach jedem Send:**
+- Erfolg → `consecutive_failures = 0` (Zähler wird zurückgesetzt, damit ein einmaliger Ausrutscher nicht ewig nachwirkt)
+- Fehler → `consecutive_failures += 1`; ab 3 wird `suppressed_at = now()` gesetzt
 
-| Versuch | Warten bis | 
-|---|---|
-| #1 (sofort) | Der eigentliche Sendeversuch beim Bewerbungseingang |
-| #2 | +5 Minuten |
-| #3 | +30 Minuten |
-| #4 | +2 Stunden |
-| #5 | +6 Stunden |
-| dann | aufgeben, Admin-Alarm |
+Ergebnis: 10 Bewerber mit unterschiedlichen Adressen bekommen ihre Mail auch dann, wenn Bewerber Nr. 4 eine tote Adresse hat.
 
-- **Exponentielles Backoff** — kein Spam beim Empfänger, weil zwischen jedem Versuch echte Wartezeit liegt.
-- **Bei Erfolg**: Row wird als `sent` markiert, keine weiteren Versuche.
-- **Bei „recipient_suppressed" / „domain_not_verified" / „duplicate"**: sofort abbrechen, nicht wiederholen (kein Sinn).
-- **Bei `tenant_emails_paused`**: pausieren, nicht als "failed" endgültig — sobald Tenant wieder aktiv ist, laufen die Retries automatisch weiter.
-- Verarbeitet durch bestehenden `pg_cron`-Job (alle 5 min) → neue Edge Function `process-email-retry-queue`.
+### 3) UI: Adress-Sperren im Admin sichtbar & aufhebbar
 
-Damit ist ausgeschlossen, dass ein Bewerber wegen einer 8-Sekunden-Delle nie eine Mail bekommt.
+Damit du kontrollieren kannst, wer gesperrt wurde und ggf. entsperren:
 
-### 3) SMTP-Verify entschärfen
+- Neuer kleiner Abschnitt **im bestehenden E-Mail-Center-Tab „Live-Simulation"** (kein neuer Tab): Liste der gesperrten Adressen mit Zeitpunkt, letztem Fehler, Anzahl Fails, Tenant + Button „Sperre aufheben".
+- Server-Function `listSuppressedRecipients` und `unsuppressRecipient`.
 
-Am `send-invitation-email`-Edge-Function-Code:
-- **Timeout 8s → 15s** (real gemessene SMTP-Handshakes brauchen auf lahmen Providern > 8s)
-- **Auto-Pause erst nach 5 Fails** statt 3 (aktuell 3)
-- **Auto-Unpause**: wenn nach der Pause der nächste manuelle Verify erfolgreich ist, wird `emails_paused` automatisch zurückgesetzt (aktuell muss man das manuell klicken)
+### 4) Einmaliges Nachzieh-Skript für die 5 Bewerber vom 19.07.
 
-### 4) Tiefer E-Mail-Test (deine Kernanforderung: „Ich will sehr tief testen")
+Nach dem Umbau baue ich eine einmalige Admin-Aktion (nicht dauerhaft im UI):
 
-Neuer Tab **„Live-Simulation"** unter `/admin/email-templates`:
+- Findet alle `email_send_log` mit `status='failed'` und `error_message LIKE '%tenant_emails_paused%'` der letzten 14 Tage
+- Setzt `tenants.emails_paused = false` für alle betroffenen Tenants
+- Löst pro betroffener Application ein erneutes `application_received` aus
+- Zeigt Ergebnis-Report
 
-**A) Bewerber-Simulation (echt, aber mit deiner Testadresse)**
-- Wähle Landing Page + optional Test-Adresse
-- Klick löst einen **echten POST an `/api/public/applications`** aus mit Testdaten (Vorname „Test", deine E-Mail, `is_test_application=true`-Flag)
-- Die komplette Kette läuft: Landing → Tenant-Lookup → Duplicate-Check → SMTP-Verify → application_received → Booking-Link → `notify-application`
-- Report zeigt jeden Schritt einzeln (✓/✗ + Zeit)
-- **Anschließend automatisches Cleanup**: die Test-Application wird aus DB gelöscht
+Du klickst einmal drauf, die 5 Bewerber bekommen ihre Mail, Aktion ist erledigt.
 
-**B) Mitarbeiter-Simulation**
-- Auswahl: „Einladung akzeptieren", „Onboarding starten", „Passwort zurücksetzen", „Interview-Erinnerung"
-- Erzeugt einen Test-Mitarbeiter, triggert den echten Flow, löscht ihn wieder
+## Reihenfolge
 
-**C) 24-h Health-Report** (neuer Menüpunkt)
-- Sendevolumen je Template + Tenant
-- Fehlerquote pro Tenant (rot ab > 5%)
-- Pausierte Tenants mit Grund + „Jetzt entpausen"-Button
-- Suppression-Liste (Bounce/Complaint)
-- Retry-Queue-Länge
+1. Migration: `email_recipient_failures` Tabelle + Grants + RLS
+2. Edge Functions: Pause-Logik raus, Empfänger-Zähler-Logik rein
+3. `src/routes/api/public/applications.ts`: `emails_paused`-Check entfernen
+4. Admin-UI: „Gesperrte Adressen" Abschnitt in Live-Simulation
+5. Einmal-Nachzieh-Aktion + ausführen
+6. `src/lib/failed-emails.functions.ts` und `src/components/admin/FailedEmailsPanel.tsx` (bereits erstellt in vorherigem Zug) werden **gelöscht** — nicht mehr benötigt
+7. Deploy Backend + Frontend, kurze Putty-Prüfung
 
-Damit siehst du nicht nur, ob die Templates rendern (das war der alte Test-Button), sondern ob der komplette **produktive Trigger-Pfad** für Bewerber UND Mitarbeiter durchläuft.
-
----
-
-## Reihenfolge der Umsetzung
-
-1. `admin.email-templates.tsx` → Tab „Fehlgeschlagene Mails" + Batch-Resend-Server-Function
-2. SQL-Migration `email_retry_queue` + Edge-Function `process-email-retry-queue` + pg_cron alle 5 min
-3. `send-invitation-email` + Sibling-Functions: Timeout 15s, Pause-Schwelle 5, Auto-Unpause
-4. Tab „Live-Simulation" mit A/B/C
-5. Deploy-Skript + kurze Anleitung, was in Putty geprüft werden kann
-
----
-
-## Was du danach in Putty tippst, um alles zu prüfen
+## Was du danach in Putty prüfen kannst
 
 ```bash
 docker exec -i supabase-db psql -U postgres -d postgres <<'SQL'
--- 1) Tenants mit SMTP + Pause-Status
-SELECT name, smtp_host, emails_paused, emails_paused_reason
-FROM tenants ORDER BY name;
+-- Sind alle Tenants aktiv?
+SELECT name, emails_paused FROM tenants WHERE emails_paused = true;
+-- (sollte 0 Zeilen liefern)
 
--- 2) Fehlgeschlagene Mails letzte 48h
-SELECT created_at, recipient_email, template_name, error_message
-FROM email_send_log
-WHERE status='failed' AND created_at > now() - interval '48 hours'
-ORDER BY created_at DESC;
+-- Wer ist als Empfänger gesperrt?
+SELECT recipient_email, consecutive_failures, last_error, suppressed_at
+FROM email_recipient_failures WHERE suppressed_at IS NOT NULL;
 
--- 3) Retry-Queue Status
-SELECT status, count(*) FROM email_retry_queue GROUP BY status;
+-- Fehler in den letzten 24h
+SELECT template_name, count(*), max(created_at)
+FROM email_send_log WHERE status='failed' AND created_at > now() - interval '24 hours'
+GROUP BY template_name;
 SQL
 ```
 
-Ok für dich so? Sag Bescheid, dann setze ich es um.
+Ok so? Sag „go" und ich setze um.

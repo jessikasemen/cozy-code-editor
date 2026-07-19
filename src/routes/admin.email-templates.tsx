@@ -20,7 +20,7 @@ import { Mail, Save, Send, Eye, AlertTriangle, CheckCircle2, Copy, Loader2, Acti
 import { useServerFn } from "@tanstack/react-start";
 import { dryRunApplicationReceived, listLandingPagesForDryRun } from "@/lib/application-dryrun.functions";
 import { dryRunFlows, listAllFlows } from "@/lib/all-flows-dryrun.functions";
-import { FailedEmailsPanel } from "@/components/admin/FailedEmailsPanel";
+import { SuppressedRecipientsPanel } from "@/components/admin/SuppressedRecipientsPanel";
 
 // Defaults für Reminder-Templates (gespiegelt zur Edge Function).
 const REMINDER_DEFAULTS = {
@@ -763,7 +763,7 @@ function AdminEmailTemplatesPage() {
               <Activity className="h-3.5 w-3.5" /> End-to-End Test
             </TabsTrigger>
             <TabsTrigger value="failed" className="text-xs gap-1.5">
-              <AlertOctagon className="h-3.5 w-3.5" /> Fehlgeschlagene Mails
+              <AlertOctagon className="h-3.5 w-3.5" /> Gesperrte Empfänger
             </TabsTrigger>
 
 
@@ -774,7 +774,7 @@ function AdminEmailTemplatesPage() {
           </TabsContent>
 
           <TabsContent value="failed">
-            <FailedEmailsPanel />
+            <SuppressedRecipientsPanel />
           </TabsContent>
 
 
