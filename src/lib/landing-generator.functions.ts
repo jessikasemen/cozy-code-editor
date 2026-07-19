@@ -642,14 +642,19 @@ function buildLegalPage(title: string, body: string, b: z.infer<typeof BrandingS
 <meta name="robots" content="noindex,follow" />
 <link rel="stylesheet" href="style.css" />
 <style>
-  .legal-page { max-width: 820px; margin: 0 auto; padding: 64px 24px 96px; font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; color:#1a1a1a; line-height:1.7; }
-  .legal-page h1 { font-size: 36px; margin: 0 0 8px; }
-  .legal-page h3 { font-size: 18px; margin: 28px 0 8px; }
+  html, body { background:#ffffff !important; color:#1a1a1a !important; }
+  body::before, body::after { display:none !important; }
+  .legal-page { max-width: 820px; margin: 0 auto; padding: 64px 24px 96px; font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; color:#1a1a1a; line-height:1.7; background:#ffffff; }
+  .legal-page h1 { font-size: 36px; margin: 0 0 8px; color:#0f172a; }
+  .legal-page h3 { font-size: 18px; margin: 28px 0 8px; color:#0f172a; }
+  .legal-page p, .legal-page div, .legal-page li { color:#1a1a1a; }
   .legal-page p { margin: 0 0 12px; }
+  .legal-page strong { color:#0f172a; }
   .legal-page a { color: #2563eb; }
   .legal-back { display:inline-block; margin-bottom: 24px; color:#64748b; text-decoration:none; font-size:14px; }
   .legal-back:hover { color:#1a1a1a; }
-  .legal-footer { max-width:820px; margin: 0 auto; padding: 24px; border-top:1px solid #e5e7eb; font-size:13px; color:#64748b; text-align:center; }
+  .legal-footer { max-width:820px; margin: 0 auto; padding: 24px; border-top:1px solid #e5e7eb; font-size:13px; color:#64748b; text-align:center; background:#ffffff; }
+  .legal-footer a { color:#64748b; }
 </style>
 </head>
 <body>
