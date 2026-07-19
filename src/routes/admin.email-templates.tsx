@@ -327,8 +327,10 @@ function AdminEmailTemplatesPage() {
   const [testing, setTesting] = useState(false);
   const [testEmail, setTestEmail] = useState("");
   const [limitedTemplateMode, setLimitedTemplateMode] = useState(false);
-  type TestTemplateKey = "employee_signup" | "reset" | "confirm" | "completion" | "no_booking" | "recovery_ma" | "chat" | "magic_link";
+  type TestTemplateKey = "employee_signup" | "reset" | "confirm" | "completion" | "no_booking" | "recovery_ma" | "chat" | "magic_link" | "application_received" | "booking_confirmation" | "app_no_booking" | "app_no_show" | "app_registration";
   const [testType, setTestType] = useState<TestTemplateKey>("employee_signup");
+  const [bulkResults, setBulkResults] = useState<Array<{ key: TestTemplateKey; label: string; ok: boolean; error?: string }>>([]);
+  const [bulkRunning, setBulkRunning] = useState(false);
   const { toast } = useToast();
 
   // Template state
@@ -518,8 +520,99 @@ function AdminEmailTemplatesPage() {
       case "recovery_ma": return { subject: rRecoveryMaSubject, body: rRecoveryMaBody };
       case "chat": return { subject: rChatSubject, body: rChatBody };
       case "magic_link": return { subject: mlSubject, body: mlBody };
+      case "application_received": return { subject: employeeSignupSubject, body: employeeSignupBody };
+      case "booking_confirmation": return { subject: bcSubject, body: bcBody };
+      case "app_no_booking": return { subject: rAppNoBookingSubject, body: rAppNoBookingBody };
+      case "app_no_show": return { subject: rAppNoShowSubject, body: rAppNoShowBody };
+      case "app_registration": return { subject: rAppRegSubject, body: rAppRegBody };
     }
   };
+
+  const ALL_TEST_TEMPLATES: Array<{ key: TestTemplateKey; label: string }> = [
+    { key: "employee_signup", label: "Willkommen (Mitarbeiter)" },
+    { key: "application_received", label: "Bewerbung eingegangen" },
+    { key: "booking_confirmation", label: "Terminbestätigung" },
+    { key: "magic_link", label: "Interview-Einladung (30 Min vorher)" },
+    { key: "reset", label: "Passwort-Reset" },
+    { key: "confirm", label: "Erinnerung: E-Mail bestätigen" },
+    { key: "completion", label: "Erinnerung: Registrierung abschließen" },
+    { key: "no_booking", label: "Erinnerung: Keine Buchung" },
+    { key: "chat", label: "Chat-Reminder" },
+    { key: "recovery_ma", label: "Domain-Wechsel (Mitarbeiter)" },
+    { key: "app_no_booking", label: "Vermittlung: Kein Termin" },
+    { key: "app_no_show", label: "Vermittlung: No-Show" },
+    { key: "app_registration", label: "Vermittlung: Registrierung offen" },
+  ];
+
+  const sendOneTest = async (key: TestTemplateKey): Promise<{ ok: boolean; error?: string }> => {
+    if (!testEmail || !selectedTenant) return { ok: false, error: "keine Empfänger-Adresse" };
+    try {
+      const { subject, body } = getTestTemplate(key);
+      const isBewerbungMl = key === "magic_link";
+      const templateName = isBewerbungMl ? "bewerbung_magic_link" : key;
+      const { data, error } = await supabase.functions.invoke("send-invitation-email", {
+        body: {
+          to: testEmail,
+          fullName: "Test Benutzer",
+          firstName: "Test",
+          lastName: "Benutzer",
+          registrationLink: `https://${selectedTenant.domain}/register?token=test`,
+          tenantId: selectedTenantId,
+          subject: subject ? `[TEST] ${replacePlaceholders(subject, selectedTenant)}` : `[TEST] ${key}`,
+          intro: body || undefined,
+          buttonLabel: isBewerbungMl ? mlButton : (key === "booking_confirmation" ? bcButton : undefined),
+          templateName,
+          placeholders: {
+            sender_name: selectedTenant.sender_name || "Geschäftsführung",
+            recruiter_name: selectedTenant.sender_name || "Sabine Schneider",
+            partner_name: "Musterfirma GmbH",
+            calendly_link: `https://${selectedTenant.domain}/termin`,
+            booking_link: `https://${selectedTenant.domain}/termin`,
+            portal_link: `https://${selectedTenant.domain}/portal`,
+            login_link: `https://${selectedTenant.domain}/login`,
+            confirmation_link: `https://${selectedTenant.domain}/confirm?token=test`,
+            cancel_url: `https://${selectedTenant.domain}/termin/cancel?token=test`,
+            appointment_date: "24.07.2026",
+            appointment_time: "14:30",
+            duration_minutes: "30",
+            team_leader_name: selectedTenant.sender_name || "Team-Leitung",
+            unread_count: "2",
+            email: testEmail,
+          },
+        },
+      });
+      if (error) return { ok: false, error: error.message };
+      if (data?.error) return { ok: false, error: String(data.error) };
+      return { ok: true };
+    } catch (err: any) {
+      return { ok: false, error: err?.message || String(err) };
+    }
+  };
+
+  const handleTestAll = async () => {
+    if (!testEmail || !selectedTenant) {
+      toast({ title: "Empfänger fehlt", variant: "destructive" });
+      return;
+    }
+    setBulkRunning(true);
+    setBulkResults([]);
+    const results: Array<{ key: TestTemplateKey; label: string; ok: boolean; error?: string }> = [];
+    for (const tpl of ALL_TEST_TEMPLATES) {
+      const res = await sendOneTest(tpl.key);
+      results.push({ key: tpl.key, label: tpl.label, ...res });
+      setBulkResults([...results]);
+      // kleine Pause gegen SMTP-Rate-Limits
+      await new Promise((r) => setTimeout(r, 400));
+    }
+    setBulkRunning(false);
+    const ok = results.filter((r) => r.ok).length;
+    toast({
+      title: `Sammel-Test abgeschlossen: ${ok}/${results.length} erfolgreich`,
+      description: ok === results.length ? "Alle Templates erfolgreich versendet." : "Details siehe Liste.",
+      variant: ok === results.length ? "default" : "destructive",
+    });
+  };
+
 
   const handleUseMyEmail = async () => {
     const { data } = await supabase.auth.getUser();
@@ -869,22 +962,15 @@ function AdminEmailTemplatesPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="employee_signup">Herzlichen Glückwunsch</SelectItem>
-                    <SelectItem value="reset">Passwort-Reset</SelectItem>
-                    
-                    <SelectItem value="confirm">Erinnerung: E-Mail bestätigen</SelectItem>
-                    <SelectItem value="completion">Erinnerung: Registrierung abschließen</SelectItem>
-                    <SelectItem value="no_booking">Erinnerung: Keine Buchung</SelectItem>
-                    <SelectItem value="recovery_ma">Domain-Wechsel: Mitarbeiter</SelectItem>
-                    <SelectItem value="chat">Chat-Reminder</SelectItem>
-                    <SelectItem value="magic_link">Vermittlung: Interview-Einladung</SelectItem>
-                    
+                    {ALL_TEST_TEMPLATES.map((t) => (
+                      <SelectItem key={t.key} value={t.key}>{t.label}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
               <Button
                 onClick={handleTestSend}
-                disabled={testing || !testEmail || !smtpConfigured}
+                disabled={testing || bulkRunning || !testEmail || !smtpConfigured}
                 className="gap-1.5"
               >
                 {testing ? (
@@ -894,11 +980,51 @@ function AdminEmailTemplatesPage() {
                 )}
                 Senden
               </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={handleTestAll}
+                disabled={testing || bulkRunning || !testEmail || !smtpConfigured}
+                className="gap-1.5"
+                title="Sendet nacheinander eine Test-E-Mail pro Template"
+              >
+                {bulkRunning ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Mail className="h-3.5 w-3.5" />
+                )}
+                Alle Templates testen
+              </Button>
             </div>
             {!smtpConfigured && (
               <p className="text-xs text-destructive mt-2">
                 Testversand nicht möglich – SMTP ist nicht konfiguriert.
               </p>
+            )}
+            {bulkResults.length > 0 && (
+              <div className="mt-4 border rounded-md divide-y">
+                {bulkResults.map((r) => (
+                  <div key={r.key} className="flex items-start justify-between gap-3 px-3 py-2 text-xs">
+                    <div className="flex items-center gap-2 min-w-0">
+                      {r.ok ? (
+                        <CheckCircle2 className="h-3.5 w-3.5 text-green-600 shrink-0" />
+                      ) : (
+                        <AlertTriangle className="h-3.5 w-3.5 text-destructive shrink-0" />
+                      )}
+                      <span className="font-medium">{r.label}</span>
+                      <span className="text-muted-foreground">({r.key})</span>
+                    </div>
+                    <div className={r.ok ? "text-green-700" : "text-destructive truncate max-w-[50%]"}>
+                      {r.ok ? "gesendet" : (r.error || "Fehler")}
+                    </div>
+                  </div>
+                ))}
+                {bulkRunning && (
+                  <div className="px-3 py-2 text-xs text-muted-foreground flex items-center gap-2">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> weiter…
+                  </div>
+                )}
+              </div>
             )}
           </CardContent>
         </Card>
