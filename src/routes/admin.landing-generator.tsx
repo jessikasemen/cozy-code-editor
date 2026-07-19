@@ -594,7 +594,7 @@ document.addEventListener('submit', function(e){
     if (branding.flow_type !== "broker" && !branding.api_endpoint) return "API-Endpoint ist für Klassisch/Fast-Track Pflicht.";
     if (!branding.landing_domain.trim()) return "Landing-Domain fehlt.";
     if (branding.flow_type === "fast" && !branding.portal_url.trim()) return "Fast-Track braucht Portal-URL.";
-    if (branding.flow_type === "broker" && !branding.calendly_url.trim()) return "Vermittlung braucht entweder eine Fast-Track-Firma oder einen Calendly-Link.";
+    if (branding.flow_type === "broker" && branding.booking_mode === "calendly" && !branding.calendly_url.trim() && !branding.linked_fasttrack_landing_id.trim()) return 'Vermittlung braucht entweder eine Fast-Track-Firma oder einen Calendly-Link (oder wähle „Eigenes Buchungssystem").';
     if (!branding.tenant_id.trim()) return "Tenant-ID fehlt.";
     return null;
   };
