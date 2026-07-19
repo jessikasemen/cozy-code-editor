@@ -767,6 +767,9 @@ function AdminEmailTemplatesPage() {
             <TabsTrigger value="failed" className="text-xs gap-1.5">
               <AlertOctagon className="h-3.5 w-3.5" /> Gesperrte Empfänger
             </TabsTrigger>
+            <TabsTrigger value="audit" className="text-xs gap-1.5">
+              <RouteIcon className="h-3.5 w-3.5" /> Routing-Audit
+            </TabsTrigger>
 
 
           </TabsList>
@@ -778,6 +781,11 @@ function AdminEmailTemplatesPage() {
           <TabsContent value="failed">
             <SuppressedRecipientsPanel />
           </TabsContent>
+
+          <TabsContent value="audit">
+            <RoutingAuditPanel />
+          </TabsContent>
+
 
 
 
