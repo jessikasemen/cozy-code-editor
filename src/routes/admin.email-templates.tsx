@@ -1052,32 +1052,53 @@ type DryRunLanding = { id: string; slug: string | null; source_slug: string | nu
 function DryRunPanel() {
   const { toast } = useToast();
   const listFn = useServerFn(listLandingPagesForDryRun);
-  const runFn = useServerFn(dryRunApplicationReceived);
+  const listFlowsFn = useServerFn(listAllFlows);
+  const runSingleFn = useServerFn(dryRunApplicationReceived);
+  const runFlowsFn = useServerFn(dryRunFlows);
+
   const [landings, setLandings] = useState<DryRunLanding[]>([]);
+  const [flows, setFlows] = useState<Array<{ key: string; group: string; label: string }>>([]);
   const [selected, setSelected] = useState<string>("");
   const [email, setEmail] = useState("");
-  const [sendMail, setSendMail] = useState(true);
+  const [selectedFlows, setSelectedFlows] = useState<Set<string>>(new Set());
   const [running, setRunning] = useState(false);
-  const [result, setResult] = useState<DryRunResult | null>(null);
+  const [result, setResult] = useState<any | null>(null);
 
   useEffect(() => {
     listFn({ data: {} as any })
       .then((r: any) => setLandings((r?.rows ?? []) as DryRunLanding[]))
       .catch((e) => toast({ title: "Landings laden fehlgeschlagen", description: String(e?.message ?? e), variant: "destructive" }));
+    listFlowsFn({ data: {} as any })
+      .then((r: any) => {
+        const list = (r?.flows ?? []) as Array<{ key: string; group: string; label: string }>;
+        setFlows(list);
+        setSelectedFlows(new Set(list.map((f) => f.key)));
+      })
+      .catch((e) => toast({ title: "Flows laden fehlgeschlagen", description: String(e?.message ?? e), variant: "destructive" }));
   }, []);
 
-  const run = async () => {
-    if (!selected || !email) {
-      toast({ title: "Landing + Test-Adresse wählen", variant: "destructive" });
+  const toggleFlow = (key: string) => {
+    setSelectedFlows((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+  const selectAll = () => setSelectedFlows(new Set(flows.map((f) => f.key)));
+  const selectNone = () => setSelectedFlows(new Set());
+
+  const runAll = async () => {
+    if (!selected || !email || selectedFlows.size === 0) {
+      toast({ title: "Landing, Test-Adresse und min. 1 Flow wählen", variant: "destructive" });
       return;
     }
     setRunning(true);
     setResult(null);
     try {
-      const res = await runFn({ data: { landing_page_id: selected, test_email: email, send_email: sendMail } as any });
-      setResult(res as DryRunResult);
+      const res = await runFlowsFn({ data: { landing_page_id: selected, test_email: email, flow_keys: Array.from(selectedFlows) } as any });
+      setResult(res);
       toast({
-        title: (res as any).ok ? "✅ Dry-Run grün" : "❌ Dry-Run fehlgeschlagen",
+        title: (res as any).ok ? "✅ Alle Flows grün" : "❌ Fehler in mind. einem Flow",
         description: (res as any).summary,
         variant: (res as any).ok ? "default" : "destructive",
       });
@@ -1088,19 +1109,46 @@ function DryRunPanel() {
     }
   };
 
+  const runDeep = async () => {
+    if (!selected || !email) {
+      toast({ title: "Landing + Test-Adresse wählen", variant: "destructive" });
+      return;
+    }
+    setRunning(true);
+    setResult(null);
+    try {
+      const res = await runSingleFn({ data: { landing_page_id: selected, test_email: email, send_email: true } as any });
+      setResult(res);
+      toast({
+        title: (res as any).ok ? "✅ Bewerbungsflow grün" : "❌ Bewerbungsflow fehlgeschlagen",
+        description: (res as any).summary,
+        variant: (res as any).ok ? "default" : "destructive",
+      });
+    } catch (e: any) {
+      toast({ title: "Dry-Run Fehler", description: String(e?.message ?? e), variant: "destructive" });
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const groupLabel = (g: string) => g === "applicant" ? "Bewerber" : g === "employee" ? "Mitarbeiter" : "System";
+  const grouped = ["applicant", "employee", "system"].map((g) => ({
+    group: g,
+    flows: flows.filter((f) => f.group === g),
+  }));
+
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-base flex items-center gap-2">
-          <Activity className="h-4 w-4" /> End-to-End Test: Bewerbungseingang
+          <Activity className="h-4 w-4" /> End-to-End Test: Alle Mail-Flows
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          Simuliert den kompletten Trigger-Pfad einer eingehenden Bewerbung (Tenant-Lookup,
-          Booking-Modus, Link-Konstruktion, Preflight, Edge-Function-Call) für die gewählte
-          Landing Page. Es wird <strong>keine</strong> Bewerbung in der DB angelegt und
-          <strong> kein</strong> Fehler in <code>email_send_log</code> geschrieben.
+          Sendet echte Testmails (mit <code>[DRY-RUN]</code>-Präfix) für jeden ausgewählten Flow
+          über die produktive Edge-Function. Prüft vorher Tenant, SMTP, Pause-Flag und Suppression.
+          <strong> Keine</strong> DB-Änderungen, <strong>keine</strong> Fehler in <code>email_send_log</code>.
         </p>
 
         <div className="grid gap-3 sm:grid-cols-2">
@@ -1123,16 +1171,43 @@ function DryRunPanel() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <input id="dryrun-send" type="checkbox" checked={sendMail} onChange={(e) => setSendMail(e.target.checked)} />
-          <Label htmlFor="dryrun-send" className="text-xs cursor-pointer">
-            Am Ende echte Testmail via Edge-Function senden (mit <code>[DRY-RUN]</code>-Präfix im Subject)
-          </Label>
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <Label className="text-xs">Flows ({selectedFlows.size}/{flows.length} ausgewählt)</Label>
+            <div className="flex gap-2">
+              <Button type="button" size="sm" variant="ghost" onClick={selectAll} className="h-7 text-xs">Alle</Button>
+              <Button type="button" size="sm" variant="ghost" onClick={selectNone} className="h-7 text-xs">Keine</Button>
+            </div>
+          </div>
+          <div className="border rounded-md divide-y">
+            {grouped.map(({ group, flows: gFlows }) => gFlows.length > 0 && (
+              <div key={group} className="px-3 py-2">
+                <div className="text-xs font-semibold text-muted-foreground mb-1.5">{groupLabel(group)}</div>
+                <div className="grid gap-1.5 sm:grid-cols-2">
+                  {gFlows.map((f) => (
+                    <label key={f.key} className="flex items-center gap-2 text-sm cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selectedFlows.has(f.key)}
+                        onChange={() => toggleFlow(f.key)}
+                      />
+                      <span>{f.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
 
-        <Button onClick={run} disabled={running || !selected || !email}>
-          {running ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Läuft…</> : <><Activity className="mr-2 h-4 w-4" /> Dry-Run starten</>}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={runAll} disabled={running || !selected || !email || selectedFlows.size === 0}>
+            {running ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Läuft…</> : <><Send className="mr-2 h-4 w-4" /> Ausgewählte Flows testen ({selectedFlows.size})</>}
+          </Button>
+          <Button onClick={runDeep} disabled={running || !selected || !email} variant="outline">
+            <Activity className="mr-2 h-4 w-4" /> Tiefen-Test „Bewerbungseingang" (mit Trigger-Pfad)
+          </Button>
+        </div>
 
         {result && (
           <div className="border rounded-md">
@@ -1140,15 +1215,18 @@ function DryRunPanel() {
               {result.summary}
             </div>
             <ul className="divide-y">
-              {result.steps.map((s) => (
-                <li key={s.key} className="px-3 py-2 flex gap-3 items-start">
+              {(result.steps ?? []).map((s: any, i: number) => (
+                <li key={s.key ?? i} className="px-3 py-2 flex gap-3 items-start">
                   <span className="mt-0.5">
                     {s.ok
                       ? <CheckCircle2 className="h-4 w-4 text-emerald-600" />
                       : <AlertTriangle className="h-4 w-4 text-red-600" />}
                   </span>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium">{s.label}</div>
+                    <div className="text-sm font-medium">
+                      {s.label}
+                      {typeof s.ms === "number" && <span className="ml-2 text-xs text-muted-foreground">· {s.ms}ms</span>}
+                    </div>
                     {s.detail && <div className="text-xs text-muted-foreground break-all">{s.detail}</div>}
                     {s.reason && !s.ok && <div className="text-xs text-red-700 mt-0.5">reason: <code>{s.reason}</code></div>}
                   </div>
@@ -1159,6 +1237,9 @@ function DryRunPanel() {
         )}
       </CardContent>
     </Card>
+  );
+}
+
   );
 }
 
