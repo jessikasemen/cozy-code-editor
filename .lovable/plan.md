@@ -1,67 +1,74 @@
-## Ziel
+## Ausgangspunkt
 
-1. **E-Mail Center Test-Button** — für jedes aktive Template ein "Test an mich senden" ermöglichen, inkl. Live-Vorschau.
-2. **Diagnose Bewerbungsmail-Fehler** (19.07., 11:27) — herausfinden, warum `application_received` fehlgeschlagen ist.
+Zwei Erkenntnisse aus deinem letzten Test:
 
----
+1. Die SQL auf `reminder_log` war leer — **weil `application_received` gar nicht dorthin loggt.** Der Code in `src/routes/api/public/applications.ts` (Zeilen 467–512) schreibt Fehler nach **`email_send_log`** mit `template_name = 'application_received'`. Wir haben also die falsche Tabelle abgefragt.
+2. Du willst zurecht mehr als nur "SMTP funktioniert" — nämlich den **kompletten Pfad** testen: Tenant-Lookup, Booking-Link-Konstruktion, `emails_paused`-Check, Preflight, Edge-Function-Call, DB-Log.
 
-## Teil 1 — E-Mail Center testen
-
-**Aktueller Stand:** In `src/routes/admin.email-templates.tsx` existiert bereits ein Test-Send-Bereich, der aber nur 8 Templates abdeckt (`employee_signup`, `reset`, `confirm`, `completion`, `no_booking`, `recovery_ma`, `chat`, `magic_link`). Es fehlen die wichtigsten Bewerber-Templates:
-- `application_received` (Bewerbungsbestätigung)
-- `booking_confirmation` (Terminbestätigung mit .ics)
-- `app_no_booking` (Bewerber ohne Termin)
-- `app_no_show` (Bewerber nicht erschienen)
-- `app_registration` (Registrierungs-Erinnerung nach Zusage)
-- `recovery_ma` bzw. `recovery_mitarbeiter` (Umzug)
-
-**Umsetzung:**
-
-- Test-Panel in `admin.email-templates.tsx` erweitern:
-  - Alle Template-Keys in ein einziges Dropdown „Template auswählen" packen (aus einem zentralen Katalog-Array), inkl. der oben fehlenden.
-  - Button **„An alle aktiven Templates testen"** — schickt in Reihe je eine `[TEST]`-Mail pro Template an die eingetragene Adresse, mit Sammel-Report (✅/❌ pro Template) statt einzelner Toasts.
-  - Ergebnis-Liste (Template, Status, Fehlermeldung) direkt unter dem Panel — 60s sichtbar, damit man alle Ausgänge auf einen Blick sieht.
-- Passende Dummy-Platzhalter pro Template (z.B. `appointment_date`, `calendly_link`, `partner_name`) einmalig zentral definieren, damit Templates mit Bewerber-Variablen nicht als „Roh-Platzhalter" ankommen.
-- Betreff jeder Test-Mail bekommt Präfix `[TEST]` (bereits vorhanden), Adressat = eingetragene Adresse + Button „Meine E-Mail übernehmen" (bereits vorhanden).
-
-Keine neuen DB-Tabellen, keine neue Edge-Function — nur der bestehende `send-invitation-email`-Aufruf mit `templateName`.
+Genau das lässt sich sauber lösen, ohne den Live-Code zu verändern.
 
 ---
 
-## Teil 2 — Diagnose „Bewerbungsmail fehlgeschlagen · 19.07., 11:27"
+## Teil A — Richtige Diagnose-Query (sofort machbar, kein Code)
 
-**Erste Schritte** (rein lesend, kein Code):
+Auf dem Backend-Server ausführen:
 
-1. `reminder_log` per SQL prüfen für Zeitraum 19.07. 11:20–11:35, `template = 'application_received'`, `status = 'failed'`.
-   → Feld `error` enthält den konkreten Grund (SMTP down, `confirmation_action_link_missing`, `tenant_lookup_failed`, `preflight`-Fehler, HTTP-Statuscode der Edge-Function …).
-2. Edge-Function-Logs `send-invitation-email` für denselben Zeitraum (bei Self-Hosted Supabase über `docker logs supabase-edge-functions` bzw. `supabase functions logs`).
-3. Betroffene `applications`-Zeile prüfen: `email`, `tenant_id`, `portal_url`, `flow_type`, `is_test`, `landing_page_id` — damit klar ist, ob z.B. der Portal-Link oder Booking-Link fehlte (siehe Codepfad in `src/routes/api/public/applications.ts:636–684`).
+```bash
+docker exec -i supabase-db psql -U postgres -d postgres <<'SQL'
+SELECT created_at, recipient_email, tenant_id, status, error_message, metadata
+FROM email_send_log
+WHERE template_name = 'application_received'
+  AND status = 'failed'
+  AND created_at BETWEEN '2026-07-19 09:00' AND '2026-07-19 13:00'
+ORDER BY created_at DESC
+LIMIT 20;
+SQL
+```
 
-**Häufige Ursachen laut Codepfad:**
-- `confirmation_action_link_missing` — weder Booking-Link noch Portal-URL bekannt (Tenant hat keine `primary_domain`, Landing setzt keine).
-- `tenant_lookup_failed` / `emails_paused` — Tenant deaktiviert oder SMTP pausiert.
-- `send-invitation-email HTTP 5xx` — SMTP-Credentials falsch/abgelaufen, Rate-Limit.
-- `mail_function_env_missing` — `SUPABASE_URL`/`SERVICE_ROLE_KEY` in TanStack-Server-Runtime fehlt.
+Die Spalten `error_message` und `metadata.reason` benennen die exakte Ursache — z.B. `confirmation_action_link_missing`, `tenant_lookup_failed`, `emails_paused`, `preflight_*` oder HTTP-Status der Edge-Function. Erst wenn wir diesen Grund kennen, mache ich einen Fix — kein Blindflug.
 
-**Fix hängt vom gefundenen Grund ab** — wird nach der SQL-Abfrage nachgezogen. Kein spekulativer Fix vorab, damit wir nicht die falsche Ursache patchen.
+---
+
+## Teil B — "Bewerbungs-Dry-Run" Button im Admin (Neubau, ca. 1 Datei)
+
+Damit du **jederzeit ohne echten Bewerber** den kompletten Trigger-Pfad prüfen kannst, baue ich einen Button `admin.landing-generator.tsx` (bzw. neuen Reiter im E-Mail-Center) mit dem Titel **„End-to-End-Test: Bewerbungseingang"**.
+
+**Was der Button tut** (rein serverseitig, keine echte Bewerbung landet in der DB):
+
+1. Nimmt eine Landing-Page-Auswahl + Test-E-Mail entgegen.
+2. Ruft eine neue Server-Function `dryRunApplicationReceived` (via `createServerFn`, admin-gated), die den **identischen Code-Pfad** wie `src/routes/api/public/applications.ts` durchläuft, aber mit dem Flag `dry_run = true`:
+   - Tenant-Lookup über `landing_page.tenant_id` — meldet ✅ / ❌ inkl. `emails_paused`, `smtp_health_status`.
+   - Booking-Modus + Link-Konstruktion (own booking / Calendly / Interview) — zeigt den **konkret berechneten** `confirmation_action_link`.
+   - Preflight (`suppressed_emails`, Bounce-Status).
+   - Edge-Function-Call **mit `[DRY-RUN]`-Präfix im Subject** an die Test-Adresse — nutzt genau denselben `send-invitation-email`-Aufruf.
+   - Schreibt **keinen** Eintrag in `email_send_log` (nur Rückgabe an UI).
+3. Rückgabe ist ein strukturierter Report:
+   ```
+   Tenant:              ✅ "Personalservice GmbH" (emails_paused=false, smtp=healthy)
+   Booking-Modus:       internal (ownBookingUrl)
+   Action-Link:         https://personalservice-gmbh.de/termin.buchen/abc123
+   Preflight:           ✅ nicht suppressed
+   Edge-Function:       ✅ HTTP 200, message_id=…
+   SMTP-Zustellung:     ✅ (Testmail versendet an dich@example.com)
+   ```
+   Bei Fehler wird der exakt gleiche `reason`-String angezeigt, der auch im echten Flow im Log stünde.
+
+**Damit gilt:** Wenn der Dry-Run grün ist, ist der echte Flow grün — inkl. Link-Konstruktion und Tenant-Auflösung, nicht nur SMTP.
+
+---
+
+## Teil C — Reihenfolge
+
+1. Du führst die korrigierte SQL aus Teil A aus → schickst mir die Zeilen.
+2. Ich fixe den 11:27-Grund gezielt (Ein-Datei-Change je nach Ursache).
+3. Ich baue Teil B (Dry-Run-Button) — dann kannst du zukünftig selbst regressionssicher testen, ohne echte Bewerber zu brauchen.
 
 ---
 
 ## Technische Notizen
 
-- Datei: `src/routes/admin.email-templates.tsx` (Panel-Erweiterung um alle Templates + Sammel-Report).
+- Neue Datei: `src/lib/application-dryrun.functions.ts` mit `dryRunApplicationReceived` (admin-only via `has_role` Check + `requireSupabaseAuth`).
+- Refactor **minimal**: die Booking-/Link-Logik aus `src/routes/api/public/applications.ts` (Zeilen ~515–560, ~636–684) wird in eine reine Helper-Funktion `buildApplicationReceivedContext(app, tenant, landing)` extrahiert, die beide Pfade (echt + dry-run) verwenden — kein Verhaltensdrift möglich.
+- UI: neuer Tab „Dry-Run" in `src/routes/admin.email-templates.tsx` mit Landing-Dropdown, Test-E-Mail-Feld, Report-Ausgabe.
 - Keine Migration nötig.
-- SQL für Diagnose (Beispiel, wird via Supabase-SQL-Tab ausgeführt):
-
-```sql
-select sent_at, email, tenant_id, reminder_type, status, error
-from reminder_log
-where reminder_type = 'application_received'
-  and sent_at between '2026-07-19 09:00' and '2026-07-19 12:00'
-order by sent_at desc;
-```
-
-## Reihenfolge
-
-1. Diagnose-SQL laufen lassen → Ursache bestätigen → gezielten Fix committen.
-2. Danach E-Mail-Center-Erweiterung ausrollen, damit du künftig alle Templates auf Knopfdruck durchtesten kannst.
+- Kein Cron, keine neue Edge-Function.
