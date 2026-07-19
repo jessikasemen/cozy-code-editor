@@ -157,8 +157,24 @@ serve(async (req) => {
     const { data: logs } = await admin.from("application_reminder_log")
       .select("application_id").eq("reminder_kind", REMINDER_KIND).in("application_id", appIds);
     const done = new Set((logs ?? []).map((r: any) => r.application_id));
-    const todo = appts.filter((a: any) => !done.has(a.application_id));
-    if (todo.length === 0) return json({ success: true, version: FUNCTION_VERSION, candidates: appts.length, sent: 0, skipped_already_sent: appts.length });
+
+    // Retry-Cap: pro Appointment max. 3 Fails in email_send_log → dann skippen.
+    const apptIds = appts.map((a: any) => a.id);
+    const { data: failLogs } = await admin.from("email_send_log")
+      .select("metadata")
+      .eq("template_name", REMINDER_KIND)
+      .eq("status", "failed");
+    const failCount = new Map<string, number>();
+    for (const r of (failLogs ?? [])) {
+      const aid = (r as any).metadata?.appointment_id;
+      if (aid && apptIds.includes(aid)) failCount.set(aid, (failCount.get(aid) ?? 0) + 1);
+    }
+    const capped = new Set(
+      Array.from(failCount.entries()).filter(([, n]) => n >= 3).map(([id]) => id),
+    );
+
+    const todo = appts.filter((a: any) => !done.has(a.application_id) && !capped.has(a.id));
+    if (todo.length === 0) return json({ success: true, version: FUNCTION_VERSION, candidates: appts.length, sent: 0, skipped_already_sent: appts.length - capped.size, skipped_retry_cap: capped.size });
 
     const { data: apps } = await admin.from("applications")
       .select("id, email, first_name, last_name, full_name, tenant_id, target_landing_id, source_landing_id")
