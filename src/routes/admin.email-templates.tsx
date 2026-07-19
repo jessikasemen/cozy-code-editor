@@ -20,7 +20,7 @@ import { Mail, Save, Send, Eye, AlertTriangle, CheckCircle2, Copy, Loader2, Acti
 import { useServerFn } from "@tanstack/react-start";
 import { dryRunApplicationReceived, listLandingPagesForDryRun } from "@/lib/application-dryrun.functions";
 import { dryRunFlows, listAllFlows } from "@/lib/all-flows-dryrun.functions";
-import { FailedEmailsPanel } from "@/components/admin/FailedEmailsPanel";
+import { SuppressedRecipientsPanel } from "@/components/admin/SuppressedRecipientsPanel";
 
 // Defaults für Reminder-Templates (gespiegelt zur Edge Function).
 const REMINDER_DEFAULTS = {
