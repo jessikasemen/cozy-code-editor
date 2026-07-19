@@ -757,9 +757,18 @@ function AdminEmailTemplatesPage() {
             <TabsTrigger value="reminders" className="text-xs gap-1.5">
               <Mail className="h-3.5 w-3.5" /> Erinnerungen
             </TabsTrigger>
+            <TabsTrigger value="dryrun" className="text-xs gap-1.5">
+              <Activity className="h-3.5 w-3.5" /> End-to-End Test
+            </TabsTrigger>
 
 
           </TabsList>
+
+          <TabsContent value="dryrun">
+            <DryRunPanel />
+          </TabsContent>
+
+
 
           <TabsContent value="employee_signup">
             <TemplateEditor
