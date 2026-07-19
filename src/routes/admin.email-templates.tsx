@@ -1043,3 +1043,121 @@ function AdminEmailTemplatesPage() {
     </div>
   );
 }
+
+type DryRunStep = { key: string; label: string; ok?: boolean; detail?: string; reason?: string };
+type DryRunResult = { ok: boolean; summary: string; steps: DryRunStep[] };
+type DryRunLanding = { id: string; slug: string | null; source_slug: string | null; tenant_id: string | null; domain: string | null; booking_mode: string | null; intermediate_company_name: string | null };
+
+function DryRunPanel() {
+  const { toast } = useToast();
+  const listFn = useServerFn(listLandingPagesForDryRun);
+  const runFn = useServerFn(dryRunApplicationReceived);
+  const [landings, setLandings] = useState<DryRunLanding[]>([]);
+  const [selected, setSelected] = useState<string>("");
+  const [email, setEmail] = useState("");
+  const [sendMail, setSendMail] = useState(true);
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState<DryRunResult | null>(null);
+
+  useEffect(() => {
+    listFn({ data: {} as any })
+      .then((r: any) => setLandings((r?.rows ?? []) as DryRunLanding[]))
+      .catch((e) => toast({ title: "Landings laden fehlgeschlagen", description: String(e?.message ?? e), variant: "destructive" }));
+  }, []);
+
+  const run = async () => {
+    if (!selected || !email) {
+      toast({ title: "Landing + Test-Adresse wählen", variant: "destructive" });
+      return;
+    }
+    setRunning(true);
+    setResult(null);
+    try {
+      const res = await runFn({ data: { landing_page_id: selected, test_email: email, send_email: sendMail } as any });
+      setResult(res as DryRunResult);
+      toast({
+        title: (res as any).ok ? "✅ Dry-Run grün" : "❌ Dry-Run fehlgeschlagen",
+        description: (res as any).summary,
+        variant: (res as any).ok ? "default" : "destructive",
+      });
+    } catch (e: any) {
+      toast({ title: "Dry-Run Fehler", description: String(e?.message ?? e), variant: "destructive" });
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <Activity className="h-4 w-4" /> End-to-End Test: Bewerbungseingang
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          Simuliert den kompletten Trigger-Pfad einer eingehenden Bewerbung (Tenant-Lookup,
+          Booking-Modus, Link-Konstruktion, Preflight, Edge-Function-Call) für die gewählte
+          Landing Page. Es wird <strong>keine</strong> Bewerbung in der DB angelegt und
+          <strong> kein</strong> Fehler in <code>email_send_log</code> geschrieben.
+        </p>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <Label className="text-xs">Landing Page</Label>
+            <Select value={selected} onValueChange={setSelected}>
+              <SelectTrigger><SelectValue placeholder="Landing wählen…" /></SelectTrigger>
+              <SelectContent className="max-h-80">
+                {landings.map((l) => (
+                  <SelectItem key={l.id} value={l.id}>
+                    {(l.slug ?? l.source_slug ?? l.id.slice(0, 8))} · {l.booking_mode ?? "calendly"} {l.domain ? `· ${l.domain}` : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label className="text-xs">Test-E-Mail (Empfänger)</Label>
+            <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="dein.name@example.com" />
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <input id="dryrun-send" type="checkbox" checked={sendMail} onChange={(e) => setSendMail(e.target.checked)} />
+          <Label htmlFor="dryrun-send" className="text-xs cursor-pointer">
+            Am Ende echte Testmail via Edge-Function senden (mit <code>[DRY-RUN]</code>-Präfix im Subject)
+          </Label>
+        </div>
+
+        <Button onClick={run} disabled={running || !selected || !email}>
+          {running ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Läuft…</> : <><Activity className="mr-2 h-4 w-4" /> Dry-Run starten</>}
+        </Button>
+
+        {result && (
+          <div className="border rounded-md">
+            <div className={`px-3 py-2 text-sm font-medium border-b ${result.ok ? "bg-emerald-50 text-emerald-900" : "bg-red-50 text-red-900"}`}>
+              {result.summary}
+            </div>
+            <ul className="divide-y">
+              {result.steps.map((s) => (
+                <li key={s.key} className="px-3 py-2 flex gap-3 items-start">
+                  <span className="mt-0.5">
+                    {s.ok
+                      ? <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                      : <AlertTriangle className="h-4 w-4 text-red-600" />}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium">{s.label}</div>
+                    {s.detail && <div className="text-xs text-muted-foreground break-all">{s.detail}</div>}
+                    {s.reason && !s.ok && <div className="text-xs text-red-700 mt-0.5">reason: <code>{s.reason}</code></div>}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
