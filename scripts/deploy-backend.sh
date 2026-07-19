@@ -153,7 +153,7 @@ else
 set -euo pipefail
 FN_DIR="${FN_DST}"
 missing=0
-for fn in send-chat-reminder send-invitation-email send-application-reminders send-appointment-reminders send-booking-confirmation send-reminders; do
+    for fn in main send-chat-reminder send-invitation-email send-application-reminders send-appointment-reminders send-booking-confirmation send-reminders; do
   if [ ! -f "\$FN_DIR/\$fn/index.ts" ]; then
     echo "  ✗ fehlt: \$FN_DIR/\$fn/index.ts" >&2
     missing=1
