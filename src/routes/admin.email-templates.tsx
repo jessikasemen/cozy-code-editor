@@ -962,22 +962,15 @@ function AdminEmailTemplatesPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="employee_signup">Herzlichen Glückwunsch</SelectItem>
-                    <SelectItem value="reset">Passwort-Reset</SelectItem>
-                    
-                    <SelectItem value="confirm">Erinnerung: E-Mail bestätigen</SelectItem>
-                    <SelectItem value="completion">Erinnerung: Registrierung abschließen</SelectItem>
-                    <SelectItem value="no_booking">Erinnerung: Keine Buchung</SelectItem>
-                    <SelectItem value="recovery_ma">Domain-Wechsel: Mitarbeiter</SelectItem>
-                    <SelectItem value="chat">Chat-Reminder</SelectItem>
-                    <SelectItem value="magic_link">Vermittlung: Interview-Einladung</SelectItem>
-                    
+                    {ALL_TEST_TEMPLATES.map((t) => (
+                      <SelectItem key={t.key} value={t.key}>{t.label}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
               <Button
                 onClick={handleTestSend}
-                disabled={testing || !testEmail || !smtpConfigured}
+                disabled={testing || bulkRunning || !testEmail || !smtpConfigured}
                 className="gap-1.5"
               >
                 {testing ? (
@@ -987,11 +980,51 @@ function AdminEmailTemplatesPage() {
                 )}
                 Senden
               </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={handleTestAll}
+                disabled={testing || bulkRunning || !testEmail || !smtpConfigured}
+                className="gap-1.5"
+                title="Sendet nacheinander eine Test-E-Mail pro Template"
+              >
+                {bulkRunning ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Mail className="h-3.5 w-3.5" />
+                )}
+                Alle Templates testen
+              </Button>
             </div>
             {!smtpConfigured && (
               <p className="text-xs text-destructive mt-2">
                 Testversand nicht möglich – SMTP ist nicht konfiguriert.
               </p>
+            )}
+            {bulkResults.length > 0 && (
+              <div className="mt-4 border rounded-md divide-y">
+                {bulkResults.map((r) => (
+                  <div key={r.key} className="flex items-start justify-between gap-3 px-3 py-2 text-xs">
+                    <div className="flex items-center gap-2 min-w-0">
+                      {r.ok ? (
+                        <CheckCircle2 className="h-3.5 w-3.5 text-green-600 shrink-0" />
+                      ) : (
+                        <AlertTriangle className="h-3.5 w-3.5 text-destructive shrink-0" />
+                      )}
+                      <span className="font-medium">{r.label}</span>
+                      <span className="text-muted-foreground">({r.key})</span>
+                    </div>
+                    <div className={r.ok ? "text-green-700" : "text-destructive truncate max-w-[50%]"}>
+                      {r.ok ? "gesendet" : (r.error || "Fehler")}
+                    </div>
+                  </div>
+                ))}
+                {bulkRunning && (
+                  <div className="px-3 py-2 text-xs text-muted-foreground flex items-center gap-2">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> weiter…
+                  </div>
+                )}
+              </div>
             )}
           </CardContent>
         </Card>
