@@ -30,7 +30,7 @@ const BrandingSchema = z.object({
   steuernummer: z.string().max(40).default(""),
   geschaeftsfuehrer: z.string().max(120).default(""),
   impressum: z.string().max(5000).default(""),
-  api_endpoint: z.string().url().max(500),
+  api_endpoint: z.union([z.literal(""), z.string().url().max(500)]).default(""),
   portal_url: z.string().max(500).default(""),
   tenant_id: z.string().max(120).default(""),
   seo_title: z.string().max(320).default(""),
