@@ -1,63 +1,43 @@
-## Situation
+## Ziel
 
-Der Server `host-190-97-167-124` (auf dem du gerade eingeloggt bist) ist der **Frontend-Server**:
-- Enthält nur `/root/mb-portal-frontend/` (statisches `dist/` + nginx-Config)
-- Kein Docker, kein Supabase → hier kann `deploy-backend.sh` nicht laufen
+Einmalig verifizieren, dass die 9 wichtigsten Mail-Flows die richtigen Empfänger triggern. Kein neuer Code, kein Deploy, kein Dashboard — du führst 3 SQL-Blöcke per Putty aus und schickst mir den Output. Ich sage dir dann pro Flow: ✅ läuft / ⚠ genau dieser Bewerber wird übersprungen, weil ….
 
-Das Backend (Supabase self-hosted, Edge Functions, Migrations) liegt auf dem **Backend-Server** — das ist der, wo dein Putty-Prompt `root@backendserver` erscheint. Genau dort müssen die neuen Migrations (`email_recipient_failures`, Tenant-Unpause) und die aktualisierten Edge Functions (`send-invitation-email` mit Recipient-Suppression, erhöhtes SMTP-Timeout) deployt werden — nur dann verschwinden die aktuellen Fehler (Tenant bleibt pausiert, Tabelle fehlt, Cron-Jobs failen).
+## Was ich prüfe
 
-## Vorgehen
+| Flow | Prüfung |
+|---|---|
+| Bewerbung eingegangen | Letzte 24h: Anzahl Bewerbungen vs. Anzahl `application_received`-Mails in `email_send_log` |
+| Kein Termin gebucht (24h + 72h) | Kandidaten in der Pipeline JETZT (Bewerbung >24h/>72h alt, kein `scheduled_at`, keine Reminder-Mail versendet) |
+| Terminbestätigung | Letzte 24h: Bookings vs. `booking_confirmation`-Log-Einträge |
+| Erinnerung 24h vor Termin | Termine in den nächsten 24h ohne bereits versendeten Reminder |
+| No-Show Nachfass | Termine >24h zurück, Status ≠ completed, ohne `no_show_24h`-Mail |
+| Interview-Einladung | Bewerber mit `interview_ready`-Status ohne `interview_invite_30min`-Mail |
+| Registrierung offen (24h + 72h) | Zusage erteilt, Invite-Token existiert, kein Profil registriert, kein `registration_pending`-Reminder |
+| Rebook nach Absage | Cancelled Bookings ohne `rebook_after_cancel`-Mail |
+| Willkommen (nach KYC) | KYC-verifizierte Mitarbeiter der letzten 7 Tage ohne `invitation`-Mail |
 
-### Schritt 1 — Auf den Backend-Server wechseln
-Öffne die Putty-Session zu dem Server, wo `root@backendserver` steht. Dort liegt das Repo mit `scripts/deploy-backend.sh`, `supabase/migrations/` und `supabase/functions/`.
+Zusätzlich: warum die 3 Cron-Jobs `process-invite-resend-queue`, `send-application-reminders`, `send-appointment-reminders` in den letzten 24h failed sind (`return_message` aus `cron.job_run_details`).
 
-### Schritt 2 — Repo-Pfad auf dem Backend-Server finden
-Falls du den Pfad nicht sicher weißt:
-```bash
-find / -maxdepth 5 -name "deploy-backend.sh" 2>/dev/null
-```
-Erwartet: irgendwas wie `/root/cozy-code-editor/scripts/deploy-backend.sh` oder `/opt/apps/backend/scripts/deploy-backend.sh`.
+## Ablauf
 
-### Schritt 3 — Aktuellen Code ziehen + deployen
-```bash
-cd <PFAD-AUS-SCHRITT-2>
-git pull
-bash scripts/deploy-backend.sh
-```
+1. Ich schicke dir 3 SQL-Blöcke, die du per Putty auf dem `backendserver` ausführst:
+   - **Block A** — Pipeline-Kandidaten pro Trigger (JETZT: „welche Bewerber würden in den nächsten Stunden welche Mail bekommen")
+   - **Block B** — Send-Bilanz letzte 24h (Trigger-Ereignis vs. tatsächlich versendete Mail, pro Flow)
+   - **Block C** — Cron-Fehler-Details (`return_message` der failed Runs)
+2. Du schickst mir die drei Outputs.
+3. Ich schicke dir einen kompakten Report:
+   - Pro Flow: ✅ korrekt gerouted / ⚠ Diskrepanz mit Namen der betroffenen Bewerber
+   - Ursache der Cron-Fehler + Einschätzung ob harmlos oder Bug
+   - Klare Aussage: „Ja, alles läuft" oder „Diese X Bewerber müssen manuell nachversorgt werden"
 
-Das Skript:
-1. Wendet die neue Migration `20260726000000_recipient_failure_suppression.sql` an → legt `email_recipient_failures` an + hebt den `auto:smtp_verify`-Pause auf.
-2. Deployed die aktualisierten Edge Functions (15 s Timeout, Recipient-Suppression statt Tenant-Pause).
-3. Räumt Cron-Jobs auf.
+## Was NICHT gemacht wird
 
-### Schritt 4 — Verifikation nach Deploy
-Auf dem Backend-Server, im Postgres-Container:
-```bash
-docker exec -i supabase-db psql -U postgres -d postgres <<'SQL'
-SELECT id, name, emails_paused, emails_paused_reason FROM tenants WHERE emails_paused = true;
-SELECT to_regclass('public.email_recipient_failures') AS suppression_table;
-SELECT jobname, status, return_message
-  FROM cron.job_run_details
-  WHERE start_time > now() - interval '1 hour'
-  ORDER BY start_time DESC LIMIT 20;
-SQL
-```
+- Kein neuer Code
+- Kein Deploy
+- Kein neues Admin-Panel
+- Keine Änderung am SMTP-Handling (25/Tag-Tenants bleiben wie sie sind)
+- Keine Migration
 
-Erwartet: 0 pausierte Tenants, Tabelle existiert, Cron-Jobs `status = succeeded`.
+## Warum das reicht
 
-### Schritt 5 — Optional: Frontend nachziehen
-Falls das Admin-UI (Panel „Gesperrte Empfänger", End-to-End-Dry-Run) auf dem Frontend-Server auch aktualisiert werden soll, **hier** auf `host-190-97-167-124`:
-```bash
-cd /root/mb-portal-frontend
-# Frontend-Deploy nach eurem üblichen Prozess (git pull + build + nginx reload)
-```
-Für das Fixen der Mail-Fehler ist das aber **nicht** nötig — die Ursache liegt komplett im Backend.
-
-## Was ich von dir brauche
-
-Wechsle in die `root@backendserver`-Session und schick mir den Output von:
-```bash
-find / -maxdepth 5 -name "deploy-backend.sh" 2>/dev/null
-```
-
-Dann kann ich dir den exakten `cd`-Befehl für Schritt 3 geben.
+Der Code-Pfad ist bereits verifiziert (Migrationen durch, Tenants nicht pausiert, `application_reminder_log` zeigt frische `sent`-Einträge für alle Reminder-Kinds). Was fehlt, ist der Live-Abgleich „ist mein Tenant X gerade in einem State, wo ein Bewerber Y triggern würde". Genau das leistet der SQL-Report — einmalig, ohne Nebenwirkung.
