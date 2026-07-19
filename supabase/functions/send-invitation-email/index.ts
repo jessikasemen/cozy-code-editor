@@ -88,7 +88,7 @@ serve(async (req) => {
 
     const { data: tenant, error: tErr } = await supabaseAdmin
       .from("tenants")
-      .select("id, name, domain, logo_url, primary_color, sender_email, sender_name, reply_to_email, smtp_host, smtp_port, smtp_username, smtp_password, is_active, emails_paused, emails_paused_reason, welcome_email_subject, welcome_email_body, application_received_subject, application_received_body, application_received_button_label")
+      .select("id, name, domain, logo_url, primary_color, sender_email, sender_name, reply_to_email, smtp_host, smtp_port, smtp_username, smtp_password, is_active, emails_paused, emails_paused_reason, emails_paused_by, welcome_email_subject, welcome_email_body, application_received_subject, application_received_body, application_received_button_label")
       .eq("id", tenantId)
       .maybeSingle();
     if (tErr || !tenant) return json({ error: "Tenant nicht gefunden" }, 404);
