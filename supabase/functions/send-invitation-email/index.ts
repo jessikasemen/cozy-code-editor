@@ -344,6 +344,48 @@ function renderTemplateBody(template: string, phMap: Record<string, string>, bra
   return { html: parts.join("\n"), hasCta };
 }
 
+const SUPPRESS_AFTER_FAILS = 3;
+
+async function bumpRecipientFailure(admin: any, email: string, tenantId: string, reason: string) {
+  try {
+    const key = email.toLowerCase().trim();
+    const { data: existing } = await admin
+      .from("email_recipient_failures")
+      .select("consecutive_failures")
+      .eq("recipient_email", key)
+      .maybeSingle();
+    const next = (existing?.consecutive_failures ?? 0) + 1;
+    const suppress = next >= SUPPRESS_AFTER_FAILS ? new Date().toISOString() : null;
+    await admin.from("email_recipient_failures").upsert({
+      recipient_email: key,
+      tenant_id: tenantId,
+      consecutive_failures: next,
+      last_failed_at: new Date().toISOString(),
+      last_error: reason.slice(0, 500),
+      suppressed_at: suppress ?? undefined,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "recipient_email" });
+    // suppressed_at NUR setzen, wenn Schwelle erreicht — sonst nicht zurücksetzen wenn schon gesperrt
+    if (suppress) {
+      await admin.from("email_recipient_failures")
+        .update({ suppressed_at: suppress })
+        .eq("recipient_email", key)
+        .is("suppressed_at", null);
+    }
+  } catch (e) { console.warn("[send-invitation-email] bumpRecipientFailure skipped:", (e as any)?.message ?? e); }
+}
+
+async function resetRecipientFailure(admin: any, email: string) {
+  try {
+    const key = email.toLowerCase().trim();
+    await admin.from("email_recipient_failures").upsert({
+      recipient_email: key,
+      consecutive_failures: 0,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "recipient_email" });
+  } catch { /* egal */ }
+}
+
 async function logSend(admin: any, tenantId: string, to: string, subject: string, html: string, senderEmail: string, status: string, error?: string, metadata?: Record<string, unknown>) {
   try {
     await admin.from("email_send_log").insert({
