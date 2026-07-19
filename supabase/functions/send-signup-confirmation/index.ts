@@ -245,7 +245,7 @@ async function verifyOrPause(admin: any, tenant: any, transporter: any): Promise
   try {
     await Promise.race([
       transporter.verify(),
-      new Promise((_r, rej) => setTimeout(() => rej(new Error("verify timeout 8s")), 8000)),
+      new Promise((_r, rej) => setTimeout(() => rej(new Error("verify timeout 15s")), 15000)),
     ]);
     await admin.from("tenant_smtp_health").upsert({
       tenant_id: tenant.id, consecutive_fails: 0,
@@ -262,7 +262,7 @@ async function verifyOrPause(admin: any, tenant: any, transporter: any): Promise
       last_verify_at: new Date().toISOString(), last_verify_ok: false, updated_at: new Date().toISOString(),
     });
     let paused = false;
-    if (false && fails >= 3 && !tenant.emails_paused) {
+    if (false && fails >= 5 && !tenant.emails_paused) {
       await admin.from("tenants").update({
         emails_paused: true,
         emails_paused_at: new Date().toISOString(),
