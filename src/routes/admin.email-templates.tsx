@@ -1240,6 +1240,3 @@ function DryRunPanel() {
   );
 }
 
-  );
-}
-
