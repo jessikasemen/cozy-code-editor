@@ -21,10 +21,11 @@ const Input = z.object({
 type Step = {
   key: string;
   label: string;
-  ok: boolean;
+  ok?: boolean;
   detail?: string;
   reason?: string;
 };
+
 
 function tenantMailBlockReason(tenant: any | null): string | null {
   if (!tenant) return "tenant_not_found";
