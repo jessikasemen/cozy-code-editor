@@ -36,7 +36,10 @@ function json(body: unknown, status = 200) {
 function tenantMailBlockReason(tenant: any | null): string | null {
   if (!tenant) return "tenant_not_found";
   if (tenant.is_active === false) return "tenant_inactive";
-  if (tenant.emails_paused) {
+  // Auto-Pause entfernt (2026-07-26): Fehler werden pro Empfänger in
+  // email_recipient_failures getrackt (3 Fails in Folge → dauerhaft gesperrt).
+  // Nur noch MANUELLE Tenant-Pausen respektieren.
+  if (tenant.emails_paused && tenant.emails_paused_by && tenant.emails_paused_by !== "auto:smtp_verify") {
     return tenant.emails_paused_reason
       ? `tenant_emails_paused: ${tenant.emails_paused_reason}`
       : "tenant_emails_paused";
