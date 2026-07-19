@@ -1,95 +1,77 @@
+
 ## Ziel
 
-Nie wieder blockiert ein einzelner SMTP-Hänger alle Bewerber eines Tenants. Stattdessen wird nur die **konkrete Empfänger-Adresse** gesperrt, nach der wirklich 3× hintereinander die Zustellung fehlgeschlagen ist.
+Verifizieren, dass alle 10 genannten E-Mail-Flows nach dem letzten Umbau (Recipient-Suppression statt Tenant-Pause, 15s SMTP-Timeout, Cron-Cleanup, `bewerbung_magic_link`-Template) tatsächlich rausgehen — nicht nur SMTP-technisch, sondern inklusive Trigger-Pfad (Tenant-Auflösung, Link-Bau, Template-Rendering, Suppression-Gate).
 
-## Was du dir gespart hast — und warum
+## Vorgehen
 
-Der geplante Tab „Fehlgeschlagene Mails" wird **nicht gebaut**. Begründung, damit du es nachvollziehen kannst:
+Ich mache das in zwei Ebenen, weil "funktioniert alles" zwei Dinge bedeuten kann: **kommt die Mail an?** (SMTP + Rendering) und **wird sie überhaupt korrekt ausgelöst?** (Trigger, Tenant, Link).
 
-- Nutzen wäre nur gewesen: failed rows aus `email_send_log` sehen + „erneut senden"-Button. Die Info bekommst du auch über den bestehenden Bewerber-Screen (die Warnung „⚠ Bewerbungsmail fehlgeschlagen" die du im Screenshot hattest) und über die Live-Simulation.
-- Der eigentliche Grund, warum wir den Tab wollten (5 Bewerber wegen Tenant-Pause blockiert), fällt weg — sobald es keine Tenant-Pause mehr gibt, ist ein Batch-Resend-UI überflüssig.
-- Für die 5 offenen Bewerber vom 19.07. baue ich stattdessen ein **einmaliges Nachzieh-Skript** (siehe Schritt 4).
+### Ebene 1 — Live-Test aus dem Admin (du klickst, ich werte aus)
 
-Falls du in Zukunft doch mal einen Überblick über fehlgeschlagene Sendungen willst, ergänzen wir das in der Live-Simulation — kein eigener Tab nötig.
+Im E-Mail-Center gibt es bereits zwei Werkzeuge, die genau das prüfen. Ich brauche von dir nur einen Klick pro Flow:
 
-## Änderungen
+1. **Dry-Run "Alle Flows"** unter `/admin/email-templates` → Tab **End-to-End Test** → Landing Page + Testadresse wählen → **Alle testen**.
+   Das ruft je Flow den echten Edge-Function-Pfad auf (mit `[DRY-RUN]`-Präfix), simuliert Tenant-Auflösung, Link-Bau, Suppression-Check, SMTP-Verify und Send. 11 Zeilen mit grün/rot + Fehlergrund.
+2. Falls eine Zeile rot ist: ich lese die konkrete Fehlermeldung + Edge-Function-Log und benenne die Ursache pro Flow.
 
-### 1) Tenant-Pause komplett entfernen
+Damit sind 9 der 10 Flows abgedeckt:
 
-In allen 5 Edge Functions (`send-invitation-email`, `send-reminders`, `send-signup-confirmation`, `send-password-reset`, `resend-signup-confirmation`):
+| Dein Wortlaut                        | Interner Flow-Key             |
+| ------------------------------------ | ----------------------------- |
+| E-Mail bestätigen                    | `signup_confirmation`         |
+| Registrierung abschließen            | `app_registration`            |
+| Keine Buchung (7 Tage)               | `app_no_booking`              |
+| Chat-Reminder                        | `chat_reminder`               |
+| Vermittlung: Kein Termin             | `app_no_booking` (Broker)     |
+| Vermittlung: No-Show                 | `app_no_show`                 |
+| Vermittlung: Registrierung offen     | `app_registration` (Broker)   |
+| Vermittlung: Interview-Einladung     | `ai_acceptance_invitation`    |
+| Terminbestätigung                    | `booking_confirmation`        |
 
-- Die Logik „nach N fehlgeschlagenen SMTP-Verifys `tenants.emails_paused = true` setzen" wird gelöscht.
-- SMTP-Verify-Timeout bleibt auf den kürzlich erhöhten 15s.
-- Der Preflight-Check in `src/routes/api/public/applications.ts:649` und an ähnlichen Stellen liest `emails_paused` nicht mehr — das Feld wird ignoriert.
-- `tenants.emails_paused` bleibt als Spalte bestehen (falls du in Not mal manuell einen Tenant komplett stumm schalten willst), wird aber automatisch nie mehr gesetzt.
-- Die auto-collected `tenant_smtp_health`-Zähler bleiben nur noch für Reporting, ohne Auto-Aktion.
+**Domain-Wechsel** ist im Dry-Run-Katalog nicht enthalten — siehe Ebene 2.
 
-### 2) Neue Sperr-Logik: 3 Fails pro Empfänger → dauerhaft blockieren
+### Ebene 2 — Backend-Checks für die Flows, die kein Dry-Run abdeckt
 
-Neue Migration + Logik in `send-invitation-email` (und den 4 Schwester-Functions):
+Für **Domain-Wechsel** und für die Live-Statistik der letzten 24h fahre ich per Putty drei kurze Reads gegen die DB (nichts wird geändert):
 
-**Zähler pro Empfänger**
-Neue Tabelle `email_recipient_failures`:
-- `recipient_email` (unique)
-- `tenant_id`
-- `consecutive_failures` (int)
-- `last_failed_at`, `last_error`
-- `suppressed_at` (nullable — gesetzt sobald 3 erreicht)
+- Zählen `email_send_log` nach `template_name` + `status` letzte 24h → Ist irgendwo `failed` überproportional?
+- `SELECT * FROM tenants WHERE emails_paused = true` → muss nach dem Umbau 0 sein.
+- `SELECT * FROM email_recipient_failures WHERE suppressed_at IS NOT NULL` → wer ist adressbasiert gesperrt?
+- `SELECT * FROM email_send_log WHERE template_name = 'domain_change' ORDER BY created_at DESC LIMIT 5` → hat der letzte Domain-Wechsel eine Mail rausgeschickt?
+- pg_cron-Jobs: läuft `send-application-reminders` (für Kein-Termin/No-Show) und `send-reminders-hourly` (24h vor Termin) fehlerfrei?
 
-**Vor jedem Send:**
-Ist die Adresse in `email_recipient_failures.suppressed_at IS NOT NULL` → sofort abbrechen, in `email_send_log.status='skipped'` mit Grund `recipient_suppressed_after_3_fails`.
+### Ebene 3 — Cron-getriggerte Flows verifizieren
 
-**Nach jedem Send:**
-- Erfolg → `consecutive_failures = 0` (Zähler wird zurückgesetzt, damit ein einmaliger Ausrutscher nicht ewig nachwirkt)
-- Fehler → `consecutive_failures += 1`; ab 3 wird `suppressed_at = now()` gesetzt
+`app_no_booking` (24h/72h/7d) und `app_no_show` (24h nach Termin) und `booking_confirmation` (nach echter Buchung) werden nicht vom Bewerber ausgelöst, sondern vom Cron bzw. vom Buchungs-Endpoint. Für die prüfe ich:
 
-Ergebnis: 10 Bewerber mit unterschiedlichen Adressen bekommen ihre Mail auch dann, wenn Bewerber Nr. 4 eine tote Adresse hat.
+- `cron.job_run_details` letzte 24h für `send-application-reminders` und `send-appointment-reminders` — alle grün?
+- Gibt es Kandidaten? (`SELECT count(*) FROM applications WHERE status = 'applied' AND scheduled_at IS NULL AND created_at < now() - interval '24 hours'`)
+- Wenn Kandidaten existieren aber `application_reminder_log` leer ist → Cron feuert, aber Query findet nichts. Dann Code-Review der Reminder-Function.
 
-### 3) UI: Adress-Sperren im Admin sichtbar & aufhebbar
+## Was du machst
 
-Damit du kontrollieren kannst, wer gesperrt wurde und ggf. entsperren:
+1. Öffne `/admin/email-templates` → Tab **End-to-End Test** → wähle eine Landing Page (idealerweise Vermittlung mit eigenem Buchungssystem, damit auch `booking_confirmation` sinnvoll läuft) und eine Testadresse, die du im Postfach hast → **Alle testen**.
+2. Screenshot der Ergebnis-Tabelle an mich.
+3. Gib mir dein OK für die 5 read-only Putty-Checks (Ebene 2+3) — ich liefere den fertigen `docker exec`-Block.
 
-- Neuer kleiner Abschnitt **im bestehenden E-Mail-Center-Tab „Live-Simulation"** (kein neuer Tab): Liste der gesperrten Adressen mit Zeitpunkt, letztem Fehler, Anzahl Fails, Tenant + Button „Sperre aufheben".
-- Server-Function `listSuppressedRecipients` und `unsuppressRecipient`.
+## Was ich danach liefere
 
-### 4) Einmaliges Nachzieh-Skript für die 5 Bewerber vom 19.07.
+Ein Ampel-Bericht pro Flow:
 
-Nach dem Umbau baue ich eine einmalige Admin-Aktion (nicht dauerhaft im UI):
-
-- Findet alle `email_send_log` mit `status='failed'` und `error_message LIKE '%tenant_emails_paused%'` der letzten 14 Tage
-- Setzt `tenants.emails_paused = false` für alle betroffenen Tenants
-- Löst pro betroffener Application ein erneutes `application_received` aus
-- Zeigt Ergebnis-Report
-
-Du klickst einmal drauf, die 5 Bewerber bekommen ihre Mail, Aktion ist erledigt.
-
-## Reihenfolge
-
-1. Migration: `email_recipient_failures` Tabelle + Grants + RLS
-2. Edge Functions: Pause-Logik raus, Empfänger-Zähler-Logik rein
-3. `src/routes/api/public/applications.ts`: `emails_paused`-Check entfernen
-4. Admin-UI: „Gesperrte Adressen" Abschnitt in Live-Simulation
-5. Einmal-Nachzieh-Aktion + ausführen
-6. `src/lib/failed-emails.functions.ts` und `src/components/admin/FailedEmailsPanel.tsx` (bereits erstellt in vorherigem Zug) werden **gelöscht** — nicht mehr benötigt
-7. Deploy Backend + Frontend, kurze Putty-Prüfung
-
-## Was du danach in Putty prüfen kannst
-
-```bash
-docker exec -i supabase-db psql -U postgres -d postgres <<'SQL'
--- Sind alle Tenants aktiv?
-SELECT name, emails_paused FROM tenants WHERE emails_paused = true;
--- (sollte 0 Zeilen liefern)
-
--- Wer ist als Empfänger gesperrt?
-SELECT recipient_email, consecutive_failures, last_error, suppressed_at
-FROM email_recipient_failures WHERE suppressed_at IS NOT NULL;
-
--- Fehler in den letzten 24h
-SELECT template_name, count(*), max(created_at)
-FROM email_send_log WHERE status='failed' AND created_at > now() - interval '24 hours'
-GROUP BY template_name;
-SQL
+```
+E-Mail bestätigen                 ✅  200ms
+Registrierung abschließen         ✅  180ms
+Keine Buchung (7 Tage)            ⚠   Cron OK, aber 0 Kandidaten in letzten 7 Tagen — nicht getestet
+Domain-Wechsel                    ✅  letzter Versand 18.07. 14:22, status=sent
+Chat-Reminder                     ✅
+Vermittlung: Kein Termin          ✅
+Vermittlung: No-Show              ✅
+Vermittlung: Registrierung offen  ✅
+Vermittlung: Interview-Einladung  ✅
+Terminbestätigung                 ✅
 ```
 
-Ok so? Sag „go" und ich setze um.
+Bei rot/gelb: konkrete Ursache + Fix-Vorschlag als eigener Plan.
+
+Sag „go" — dann geht Runde 1 (dein Klick im Admin) los und ich bereite parallel die Putty-Kommandos vor.
