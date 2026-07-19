@@ -763,7 +763,7 @@ function AdminEmailTemplatesPage() {
               <Activity className="h-3.5 w-3.5" /> End-to-End Test
             </TabsTrigger>
             <TabsTrigger value="failed" className="text-xs gap-1.5">
-              <AlertOctagon className="h-3.5 w-3.5" /> Fehlgeschlagene Mails
+              <AlertOctagon className="h-3.5 w-3.5" /> Gesperrte Empfänger
             </TabsTrigger>
 
 
@@ -774,7 +774,7 @@ function AdminEmailTemplatesPage() {
           </TabsContent>
 
           <TabsContent value="failed">
-            <FailedEmailsPanel />
+            <SuppressedRecipientsPanel />
           </TabsContent>
 
 
