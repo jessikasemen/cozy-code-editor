@@ -99,11 +99,35 @@ serve(async (req) => {
       return json({ error: "Tenant hat keine vollständige SMTP-Konfiguration" }, 400);
     }
     if (tenant.emails_paused) {
-      return json({
-        error: `E-Mail-Versand für diesen Mandanten ist pausiert${tenant.emails_paused_reason ? `: ${tenant.emails_paused_reason}` : ""}.`,
-        paused: true,
-      }, 503);
+      // Nur noch manuell gesetzte Tenant-Pausen respektieren (kein Auto-Pause mehr).
+      if (tenant.emails_paused_by && tenant.emails_paused_by !== "auto:smtp_verify") {
+        return json({
+          error: `E-Mail-Versand für diesen Mandanten ist manuell pausiert${tenant.emails_paused_reason ? `: ${tenant.emails_paused_reason}` : ""}.`,
+          paused: true,
+        }, 503);
+      }
+      // Alte Auto-Pausen ignorieren — wir clearen sie unten still.
+      try {
+        await supabaseAdmin.from("tenants").update({
+          emails_paused: false, emails_paused_at: null,
+          emails_paused_reason: null, emails_paused_by: null,
+        }).eq("id", tenant.id);
+      } catch { /* egal */ }
     }
+
+    // --- Recipient-Suppression: 3 Fails in Folge → dauerhaft gesperrt ---
+    try {
+      const { data: sup } = await supabaseAdmin
+        .from("email_recipient_failures")
+        .select("suppressed_at, consecutive_failures, last_error")
+        .eq("recipient_email", to)
+        .maybeSingle();
+      if (sup?.suppressed_at) {
+        const reason = `recipient_suppressed_after_${sup.consecutive_failures}_fails: ${sup.last_error ?? "unbekannt"}`;
+        await logSend(supabaseAdmin, tenant.id, to, "(gesperrt)", "", tenant.sender_email ?? tenant.smtp_username, "skipped", reason, { template_name: templateNameOverride || "invitation" });
+        return json({ error: reason, suppressed: true }, 409);
+      }
+    } catch (e) { console.warn("[send-invitation-email] suppression check skipped:", (e as any)?.message ?? e); }
 
     const senderName = tenant.sender_name ?? tenant.name;
     const senderEmail = tenant.sender_email ?? tenant.smtp_username;
