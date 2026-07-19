@@ -245,6 +245,7 @@ ${renderedBody.hasCta ? "" : `<table cellpadding="0" cellspacing="0" align="cent
     const verifyRes = await verifyOrPause(supabaseAdmin, tenant, transporter);
     if (!verifyRes.ok) {
       await logSend(supabaseAdmin, tenant.id, to, subject, html, senderEmail, "failed", verifyRes.reason, smtpMeta);
+      await bumpRecipientFailure(supabaseAdmin, to, tenant.id, verifyRes.reason ?? "smtp_verify_failed");
       return json({ error: `SMTP-Verbindung fehlgeschlagen: ${verifyRes.reason}`, paused: verifyRes.paused }, 502);
     }
 
@@ -257,10 +258,12 @@ ${renderedBody.hasCta ? "" : `<table cellpadding="0" cellspacing="0" align="cent
         html,
       });
       await logSend(supabaseAdmin, tenant.id, to, subject, html, senderEmail, "sent", undefined, { ...smtpMeta, message_id: info?.messageId ?? null });
+      await resetRecipientFailure(supabaseAdmin, to);
       return json({ success: true }, 200);
     } catch (sendErr: any) {
       const reason = String(sendErr?.message ?? sendErr);
       await logSend(supabaseAdmin, tenant.id, to, subject, html, senderEmail, "failed", reason, smtpMeta);
+      await bumpRecipientFailure(supabaseAdmin, to, tenant.id, reason);
       return json({ error: `E-Mail konnte nicht gesendet werden: ${reason}` }, 502);
     }
   } catch (err: any) {
