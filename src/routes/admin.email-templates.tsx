@@ -16,10 +16,11 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { PageHeaderSkeleton } from "@/components/SkeletonLoaders";
-import { Mail, Save, Send, Eye, AlertTriangle, CheckCircle2, Copy, Loader2, Activity } from "lucide-react";
+import { Mail, Save, Send, Eye, AlertTriangle, CheckCircle2, Copy, Loader2, Activity, AlertOctagon } from "lucide-react";
 import { useServerFn } from "@tanstack/react-start";
 import { dryRunApplicationReceived, listLandingPagesForDryRun } from "@/lib/application-dryrun.functions";
 import { dryRunFlows, listAllFlows } from "@/lib/all-flows-dryrun.functions";
+import { FailedEmailsPanel } from "@/components/admin/FailedEmailsPanel";
 
 // Defaults für Reminder-Templates (gespiegelt zur Edge Function).
 const REMINDER_DEFAULTS = {
@@ -761,6 +762,9 @@ function AdminEmailTemplatesPage() {
             <TabsTrigger value="dryrun" className="text-xs gap-1.5">
               <Activity className="h-3.5 w-3.5" /> End-to-End Test
             </TabsTrigger>
+            <TabsTrigger value="failed" className="text-xs gap-1.5">
+              <AlertOctagon className="h-3.5 w-3.5" /> Fehlgeschlagene Mails
+            </TabsTrigger>
 
 
           </TabsList>
@@ -768,6 +772,11 @@ function AdminEmailTemplatesPage() {
           <TabsContent value="dryrun">
             <DryRunPanel />
           </TabsContent>
+
+          <TabsContent value="failed">
+            <FailedEmailsPanel />
+          </TabsContent>
+
 
 
 

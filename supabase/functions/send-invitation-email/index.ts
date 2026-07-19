@@ -88,7 +88,7 @@ serve(async (req) => {
 
     const { data: tenant, error: tErr } = await supabaseAdmin
       .from("tenants")
-      .select("id, name, domain, logo_url, primary_color, sender_email, sender_name, reply_to_email, smtp_host, smtp_port, smtp_username, smtp_password, is_active, emails_paused, emails_paused_reason, welcome_email_subject, welcome_email_body, application_received_subject, application_received_body, application_received_button_label")
+      .select("id, name, domain, logo_url, primary_color, sender_email, sender_name, reply_to_email, smtp_host, smtp_port, smtp_username, smtp_password, is_active, emails_paused, emails_paused_reason, emails_paused_by, welcome_email_subject, welcome_email_body, application_received_subject, application_received_body, application_received_button_label")
       .eq("id", tenantId)
       .maybeSingle();
     if (tErr || !tenant) return json({ error: "Tenant nicht gefunden" }, 404);
@@ -337,13 +337,29 @@ async function verifyOrPause(admin: any, tenant: any, transporter: any): Promise
   try {
     await Promise.race([
       transporter.verify(),
-      new Promise((_r, rej) => setTimeout(() => rej(new Error("verify timeout 8s")), 8000)),
+      new Promise((_r, rej) => setTimeout(() => rej(new Error("verify timeout 15s")), 15000)),
     ]);
     const { error: healthOkErr } = await admin.from("tenant_smtp_health").upsert({
       tenant_id: tenant.id, consecutive_fails: 0,
       last_verify_at: new Date().toISOString(), last_verify_ok: true, updated_at: new Date().toISOString(),
     });
     if (healthOkErr) console.warn("[send-invitation-email] smtp health write skipped:", healthOkErr.message ?? healthOkErr);
+    // Auto-Unpause: wenn Tenant zuvor durch das auto:smtp_verify-System pausiert
+    // wurde und der Verify jetzt wieder klappt, geben wir den Versand wieder frei.
+    if (tenant.emails_paused && tenant.emails_paused_by === "auto:smtp_verify") {
+      try {
+        await admin.from("tenants").update({
+          emails_paused: false, emails_paused_at: null,
+          emails_paused_reason: null, emails_paused_by: null,
+        }).eq("id", tenant.id);
+        await admin.from("activity_log").insert({
+          action: "emails_auto_reaktiviert", entity_type: "tenant", entity_id: tenant.id,
+          comment: "SMTP-Verify wieder erfolgreich — Versand automatisch reaktiviert.",
+        }).then(() => {}, () => {});
+      } catch (unpauseErr: any) {
+        console.warn("[send-invitation-email] auto-unpause skipped:", unpauseErr?.message ?? unpauseErr);
+      }
+    }
     return { ok: true };
   } catch (e: any) {
     const reason = String(e?.message ?? e);
@@ -362,7 +378,7 @@ async function verifyOrPause(admin: any, tenant: any, transporter: any): Promise
       console.warn("[send-invitation-email] smtp health skipped:", healthErr?.message ?? healthErr);
     }
     let paused = false;
-    if (false && fails >= 3 && !tenant.emails_paused) {
+    if (false && fails >= 5 && !tenant.emails_paused) {
       await admin.from("tenants").update({
         emails_paused: true,
         emails_paused_at: new Date().toISOString(),
