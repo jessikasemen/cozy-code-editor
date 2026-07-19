@@ -32,7 +32,7 @@ export const Route = createFileRoute("/api/public/landing-server-bootstrap")({
         const supabaseUrl = process.env.SUPABASE_URL ?? "";
         const supabaseKey = process.env.SUPABASE_PUBLISHABLE_KEY ?? process.env.SUPABASE_ANON_KEY ?? "";
         const portalOrigin = normalizePortalOrigin(url.origin);
-        const acmeEmail = process.env.ACME_EMAIL ?? "admin@example.com";
+        const acmeEmail = process.env.ACME_EMAIL ?? "admin@mb-portal.com";
 
         const script = renderScript({
           serverName: server.name,
