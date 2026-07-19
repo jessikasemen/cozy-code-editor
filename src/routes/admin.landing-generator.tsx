@@ -654,9 +654,14 @@ document.addEventListener('submit', function(e){
       setEditingId((row as any).id);
       setSlug((row as any).slug);
       const r: any = row;
-      const dnsLabel = r.dnsStatus === "auto" ? "✅ DNS automatisch gesetzt" : r.dnsStatus === "manual" ? "⚠️ DNS manuell setzen" : r.dnsStatus === "skipped" ? "⚠️ Kein Server im Pool" : "❌ DNS-Fehler";
+      const dnsLabel = r.dnsStatus === "auto" ? "DNS automatisch gesetzt" : r.dnsStatus === "manual" ? "DNS-Hinweis (kein Fehler)" : r.dnsStatus === "skipped" ? "Kein Server im Pool" : "DNS-Fehler";
       const serverLabel = r.assignedServer ? `Server: ${r.assignedServer.name}` : "Kein Server zugewiesen";
-      toast({ title: `Gespeichert — ${dnsLabel}`, description: `${serverLabel}. ${r.dnsMessage ?? ""}` });
+      const isHardError = r.dnsStatus === "error";
+      toast({
+        title: `Landing gespeichert — ${dnsLabel}`,
+        description: `${serverLabel}. ${r.dnsMessage ?? ""} ${r.dnsStatus === "manual" ? "Die Landing ist online, sobald der A-Record beim Registrar gesetzt ist." : ""}`.trim(),
+        variant: isHardError ? "destructive" : "default",
+      });
       reloadLandings();
 
     } catch (e: any) {
