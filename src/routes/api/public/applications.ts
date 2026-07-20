@@ -573,7 +573,11 @@ export const Route = createFileRoute("/api/public/applications")({
           redirect_url = `${base}/bewerbung/verbinden?${qs}`;
         }
 
-        if (isFast && resolvedTenantId && redirect_url && !d.is_test) {
+        // Fast-Track: KEINE "Willkommen im Team"-Mail mehr beim Bewerbungseingang.
+        // Der einheitliche Ablauf ist: Bewerbungseingang-Bestätigung mit Termin-
+        // link → Bewerber bucht → Terminbestätigung → Interview → erst nach
+        // Zusage (Stage-Wechsel) schickt der Recruiter die Einladung.
+        if (isFast && resolvedTenantId && !d.is_test) {
           try {
             await supabaseAdmin.from("invite_resend_queue")
               .update({ status: "skipped", last_error: "fast_track_accept" } as any)
@@ -581,41 +585,11 @@ export const Route = createFileRoute("/api/public/applications")({
               .eq("email", d.email.toLowerCase())
               .in("status", ["queued", "sending"]);
           } catch (e) { console.warn("[applications fast] skip drip queue:", e); }
-          try {
-            const parts = d.full_name.trim().split(/\s+/);
-            const firstName = parts[0] ?? "";
-            const lastName = parts.slice(1).join(" ");
-            email_status = { attempted: true, status: "failed", template: "invitation" };
-            logMailAttempt("invitation", { registration_link_present: !!redirect_url });
-            const { tenant, reason: preflightReason } = await loadMailTenant();
-            if (preflightReason) {
-              email_status = { attempted: true, status: "failed", template: "invitation", reason: preflightReason };
-              await logMailResult("invitation", "failed", preflightReason, { preflight: true, tenant_name: tenant?.name ?? null });
-            } else {
-              const { data: mailData, error: mailErr, response: mailResponse } = await invokeMailFunction({
-                to: d.email, fullName: d.full_name, firstName, lastName, registrationLink: redirect_url, tenantId: resolvedTenantId,
-              });
-              if (mailErr || mailData?.error) {
-                const reason = await mailErrorMessage(mailErr, mailData, mailResponse);
-                email_status = { attempted: true, status: "failed", template: "invitation", reason };
-                await logMailResult("invitation", "failed", reason, { function_status: mailResponse?.status ?? null, function_reason: mailErr ?? null });
-              } else {
-                email_status = { attempted: true, status: "sent", template: "invitation" };
-                await logMailResult("invitation", "sent", undefined, { function_status: mailResponse?.status ?? null });
-              }
-            }
-          } catch (e) {
-            const reason = await mailErrorMessage(e);
-            email_status = { attempted: true, status: "failed", template: "invitation", reason };
-            await logMailResult("invitation", "failed", reason);
-          }
         }
 
-        // Eingangsbestätigung an Bewerber – für ALLE Flows außer Fasttrack
-        // (Fasttrack schickt bereits die Einladungsmail oben). Nur beim ersten
-        // Einreichen (wasNewlyCreated), damit wiederholte Submits keine
-        // Doppel-Mails erzeugen. Termin-Link (Calendly/eigenes System/Broker)
-        // wird als Button eingebettet, falls vorhanden – sonst reine Bestätigung.
+        // Eingangsbestätigung an Bewerber – für ALLE Flows (inkl. Fast-Track).
+        // Nur beim ersten Einreichen (wasNewlyCreated). Termin-Link
+        // (Calendly/eigenes System/Broker) wird als Button eingebettet.
         const brokerBookingLink = broker_block?.calendly_url || ownBookingUrl;
         const confirmationBookingLink =
           brokerBookingLink
@@ -623,7 +597,7 @@ export const Route = createFileRoute("/api/public/applications")({
           || ownBookingUrl
           || null;
         const shouldSendConfirmation =
-          !isFast && wasNewlyCreated && resolvedTenantId && !d.is_test;
+          wasNewlyCreated && resolvedTenantId && !d.is_test;
 
         console.log("[applications] confirmation_decision", {
           requestId,
@@ -685,7 +659,7 @@ export const Route = createFileRoute("/api/public/applications")({
             email_status = { attempted: true, status: "failed", template: "application_received", reason };
             await logMailResult("application_received", "failed", reason);
           }
-        } else if (!isFast && !wasNewlyCreated && !d.is_test) {
+        } else if (!wasNewlyCreated && !d.is_test) {
           email_status = { attempted: false, status: "skipped", template: "application_received", reason: "duplicate_application" };
           await logMailResult("application_received", "skipped", "duplicate_application");
         }
