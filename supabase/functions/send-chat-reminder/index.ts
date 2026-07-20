@@ -121,7 +121,7 @@ serve(async (req) => {
 
     // Template aus Tenant (oder Default), Platzhalter ersetzen
     const DEFAULT_SUBJECT = "Neue Nachricht von {{team_leader_name}} – {{tenant_name}}";
-    const DEFAULT_BODY = `Hi {{first_name}},\n\ndu hast {{unread_count}} ungelesene Nachricht(en) von {{team_leader_name}} im Mitarbeiter-Portal.\n\nBitte logge dich kurz ein und antworte – so geht's für dich am schnellsten weiter.\n\n{{cta:Jetzt einloggen|{{login_link}}}}\n\nFalls der Button nicht funktioniert: {{login_link}}`;
+    const DEFAULT_BODY = `Hi {{first_name}},\n\nkurze Erinnerung von {{team_leader_name}} aus dem Mitarbeiter-Portal.\n\nBitte logge dich kurz ein – so bleibst du auf dem Laufenden und wir können dir schnell weiterhelfen.\n\n{{cta:Jetzt einloggen|{{login_link}}}}\n\nFalls der Button nicht funktioniert: {{login_link}}`;
     const tplSubject = (tenant.reminder_chat_subject || DEFAULT_SUBJECT);
     const tplBody = (tenant.reminder_chat_body || DEFAULT_BODY);
 
@@ -133,8 +133,9 @@ serve(async (req) => {
       login_link: loginUrl,
       portal_link: loginUrl,
       email: to,
-      unread_count: String(count),
+      unread_count: String(unreadCount),
     };
+
     const replaceVars = (s: string) =>
       s.replace(/\{\{(\w+)\}\}/g, (_m, k) => (vars[k] !== undefined ? vars[k] : `{{${k}}}`));
     const subject = replaceVars(tplSubject);
