@@ -70,16 +70,22 @@ serve(async (req) => {
 
     // Bounce-Suppression: bekanntermaßen tote Adressen nicht erneut anschreiben.
     try {
-      const [{ data: prof }, { data: app }] = await Promise.all([
+      const [{ data: prof }, { data: app }, { data: sup }, { data: rf }] = await Promise.all([
         supabaseAdmin.from("profiles").select("email_status").ilike("email", email).neq("email_status", "active").limit(1).maybeSingle(),
         supabaseAdmin.from("applications").select("email_status").ilike("email", email).neq("email_status", "active").limit(1).maybeSingle(),
+        supabaseAdmin.from("suppressed_emails").select("reason").ilike("email", email).limit(1).maybeSingle(),
+        supabaseAdmin.from("email_recipient_failures").select("last_error").ilike("recipient_email", email).not("suppressed_at", "is", null).limit(1).maybeSingle(),
       ]);
+      if (sup || rf) {
+        return json({ error: "Diese E-Mail-Adresse ist gesperrt. Eine Registrierung ist nicht möglich." }, 403);
+      }
       if (prof || app) {
         return json({ error: "Diese E-Mail-Adresse wurde gesperrt (Bounce/Complaint). Bitte korrigieren oder Sperre im Admin aufheben." }, 400);
       }
     } catch (e) {
       console.warn("suppression-check failed (continuing):", e);
     }
+
 
 
     // 2. User anlegen + Confirmation-Link in EINEM Call.
