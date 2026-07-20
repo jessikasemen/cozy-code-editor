@@ -15,6 +15,9 @@ import {
 import { useToast } from "@/hooks/use-toast";
 
 export const Route = createFileRoute("/termin/buchen/$token")({
+  validateSearch: (s: Record<string, unknown>) => ({
+    rebook: s.rebook === "1" || s.rebook === 1 || s.rebook === true,
+  }),
   head: () => ({
     meta: [
       { title: "Termin für Bewerbungsgespräch wählen" },
