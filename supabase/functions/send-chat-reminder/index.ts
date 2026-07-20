@@ -84,15 +84,18 @@ serve(async (req) => {
       }, 200);
     }
 
-    // Ungelesene Nachrichten zählen (vom Admin/Teamleiter an diesen Mitarbeiter)
+    // Ungelesene Nachrichten zählen (nur informativ für Template-Variable).
+    // Reminder darf jetzt auch OHNE ungelesene Nachrichten rausgehen — z.B.
+    // wenn ein Mitarbeiter länger nicht mehr im Portal war und der Teamleiter
+    // ihn anschreiben will.
     const { count } = await admin
       .from("chat_messages")
       .select("id", { count: "exact", head: true })
       .eq("receiver_id", userId)
       .eq("read", false);
-    if (!count || count === 0) {
-      return json({ error: "Keine ungelesenen Nachrichten – Erinnerung nicht nötig.", skipped: true }, 200);
-    }
+    const unreadCount = count ?? 0;
+
+
 
 
     const { data: tenant } = await admin
