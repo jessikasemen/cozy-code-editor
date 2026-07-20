@@ -317,10 +317,14 @@ async function runSummary(messages: Msg[]): Promise<{ summary: string; score: nu
     return {
       summary: String(parsed.summary ?? ""),
       score: Math.max(0, Math.min(100, Math.round(Number(parsed.score) || 0))),
-      recommendation: rec === "reject" ? "reject" : "invite",
+      // WICHTIG: kein Auto-"invite" bei fehlender/kaputter KI-Antwort.
+      // Nur ein explizites "invite" von der KI triggert die Zusage-Mail
+      // ("Willkommen im Team"). Alles andere = "unsure" (kein Mailversand).
+      recommendation: rec === "invite" ? "invite" : rec === "reject" ? "reject" : "unsure",
     };
   } catch {
-    return { summary: raw.slice(0, 2000), score: 60, recommendation: "invite" };
+    // Parse-Fehler darf NIEMALS als Zusage interpretiert werden.
+    return { summary: raw.slice(0, 2000), score: 50, recommendation: "unsure" };
   }
 }
 
