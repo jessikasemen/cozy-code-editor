@@ -1,12 +1,14 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { RefreshCcw, ShieldCheck, Loader2, Info } from "lucide-react";
+import { RefreshCcw, ShieldCheck, Loader2, Info, Ban } from "lucide-react";
 import { useServerFn } from "@tanstack/react-start";
 import {
   listSuppressedRecipients,
   unsuppressRecipient,
+  blockRecipient,
   type SuppressedRecipient,
 } from "@/lib/suppressed-recipients.functions";
 
@@ -14,9 +16,13 @@ export function SuppressedRecipientsPanel() {
   const { toast } = useToast();
   const list = useServerFn(listSuppressedRecipients);
   const unsuppress = useServerFn(unsuppressRecipient);
+  const block = useServerFn(blockRecipient);
   const [rows, setRows] = useState<SuppressedRecipient[]>([]);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  const [newEmail, setNewEmail] = useState("");
+  const [newReason, setNewReason] = useState("");
+  const [blocking, setBlocking] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -40,6 +46,24 @@ export function SuppressedRecipientsPanel() {
       toast({ title: "Fehler", description: e?.message ?? String(e), variant: "destructive" });
     } finally { setBusy(null); }
   };
+
+  const handleBlock = async () => {
+    const email = newEmail.trim().toLowerCase();
+    if (!email || !/^\S+@\S+\.\S+$/.test(email)) {
+      toast({ title: "Ungültige E-Mail", variant: "destructive" });
+      return;
+    }
+    setBlocking(true);
+    try {
+      await block({ data: { recipient_email: email, reason: newReason.trim() || undefined } });
+      toast({ title: "Adresse gesperrt", description: `${email} kann sich nicht mehr registrieren und erhält keine Mails.` });
+      setNewEmail(""); setNewReason("");
+      await load();
+    } catch (e: any) {
+      toast({ title: "Fehler", description: e?.message ?? String(e), variant: "destructive" });
+    } finally { setBlocking(false); }
+  };
+
 
   return (
     <div className="space-y-4">
