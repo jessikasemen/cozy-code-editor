@@ -333,34 +333,34 @@ serve(async (req) => {
     const since = new Date(now - 10 * 86400_000).toISOString();
     const { data: apps, error: aErr } = await admin
       .from("applications")
-      .select("id,tenant_id,source_slug,source_landing_id,target_landing_id,full_name,email,status,created_at,updated_at,booking_status,scheduled_at,interview_started_at,interview_completed_at,flow_type")
+      .select("id,tenant_id,source_slug,source_landing_id,target_landing_id,full_name,email,status,created_at,updated_at,booking_status,scheduled_at,interview_started_at,interview_completed_at,flow_type,magic_token")
       .gte("created_at", since);
     if (aErr) return json({ error: aErr.message }, 500);
 
     if (!apps?.length) return json({ success: true, dry_run: dryRun, candidates: 0, sent: 0, skipped: 0, failed: 0 });
 
-    // Landing-Pages mit Calendly-Link (direkte Zuordnung via source_landing_id / target_landing_id)
+    // Landing-Pages (direkte Zuordnung via source_landing_id / target_landing_id)
     const landingIds = Array.from(new Set(apps.flatMap((a: any) => [a.source_landing_id, a.target_landing_id]).filter(Boolean)));
     const landingMap = new Map<string, LandingRow>();
     const landingErrors: Record<string, string> = {};
+    const LANDING_COLS = "id,tenant_id,slug,source_slug,calendly_url,branding,updated_at,booking_mode,domain,linked_fasttrack_landing_id";
     if (landingIds.length) {
       const { data: lps, error: lpErr } = await admin.from("landing_pages")
-        .select("id,tenant_id,slug,source_slug,calendly_url,branding,updated_at")
+        .select(LANDING_COLS)
         .in("id", landingIds);
       if (lpErr) landingErrors.direct = lpErr.message;
       for (const l of (lps ?? []) as any[]) landingMap.set(l.id, toLanding(l));
     }
 
-    // Legacy-Fallback: ältere Bewerbungen haben oft source_landing_id = NULL,
-    // aber source_slug ist noch gesetzt. Daher zusätzlich Landing per slug/source_slug laden.
+    // Legacy-Fallback über slug / source_slug.
     const sourceSlugs = Array.from(new Set(apps.map((a: any) => normalizeKey(a.source_slug)).filter(Boolean)));
     const slugLandingMap = new Map<string, LandingRow>();
     if (sourceSlugs.length) {
       const { data: bySlug, error: bsErr } = await admin.from("landing_pages")
-        .select("id,tenant_id,slug,source_slug,calendly_url,branding,updated_at")
+        .select(LANDING_COLS)
         .in("slug", sourceSlugs);
       const { data: bySourceSlug, error: bssErr } = await admin.from("landing_pages")
-        .select("id,tenant_id,slug,source_slug,calendly_url,branding,updated_at")
+        .select(LANDING_COLS)
         .in("source_slug", sourceSlugs);
       if (bsErr) landingErrors.by_slug = bsErr.message;
       if (bssErr) landingErrors.by_source_slug = bssErr.message;
@@ -369,26 +369,37 @@ serve(async (req) => {
         const keys = [landing.slug, landing.source_slug].map(normalizeKey).filter(Boolean);
         for (const key of keys) {
           const current = slugLandingMap.get(key);
-          if (!current || (!calendlyFromLanding(current) && calendlyFromLanding(landing))) slugLandingMap.set(key, landing);
+          if (!current || (!calendlyFromLanding(current) && !isInternalBooking(current)
+              && (calendlyFromLanding(landing) || isInternalBooking(landing)))) {
+            slugLandingMap.set(key, landing);
+          }
         }
       }
     }
 
-    // Fallback: pro Tenant erste Landing-Page mit Calendly-Link (für Apps ohne source_landing_id
-    // oder wenn deren Landing keinen Calendly-Link hat — z.B. Legacy-/Direktbewerbungen).
+    // Ziel-Landing (Fast-Track) für Broker-Landings vorladen — brauchen wir für portal-Domain-Auflösung.
+    const linkedIds = Array.from(new Set(
+      Array.from(landingMap.values()).map((l) => l.linked_fasttrack_landing_id).filter(Boolean) as string[],
+    )).filter((id) => !landingMap.has(id));
+    if (linkedIds.length) {
+      const { data: linkedLps } = await admin.from("landing_pages").select(LANDING_COLS).in("id", linkedIds);
+      for (const l of (linkedLps ?? []) as any[]) landingMap.set(l.id, toLanding(l));
+    }
+
+    // Tenant-Fallback (nur relevant für Calendly-basierte Legacy-Flows).
     const tenantIdsForFallback = Array.from(new Set(apps.map((a: any) => a.tenant_id).filter(Boolean)));
     const tenantLandingFallback = new Map<string, LandingRow>();
     let tenantLandingRawCount = 0;
     if (tenantIdsForFallback.length) {
       const { data: tlps, error: tlpErr } = await admin.from("landing_pages")
-        .select("id,tenant_id,slug,source_slug,calendly_url,branding,updated_at")
+        .select(LANDING_COLS)
         .in("tenant_id", tenantIdsForFallback)
         .order("updated_at", { ascending: false });
       if (tlpErr) landingErrors.tenant = tlpErr.message;
       tenantLandingRawCount = (tlps ?? []).length;
       for (const l of (tlps ?? []) as any[]) {
         const landing = toLanding(l);
-        if (!tenantLandingFallback.has(l.tenant_id) && calendlyFromLanding(landing)) {
+        if (!tenantLandingFallback.has(l.tenant_id) && (calendlyFromLanding(landing) || isInternalBooking(landing))) {
           tenantLandingFallback.set(l.tenant_id, landing);
         }
       }
