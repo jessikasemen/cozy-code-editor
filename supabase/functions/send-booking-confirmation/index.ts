@@ -159,12 +159,18 @@ serve(async (req) => {
     if (!appts || appts.length === 0) return json({ success: true, version: FUNCTION_VERSION, candidates: 0, sent: 0 });
 
     const appIds = Array.from(new Set(appts.map((a: any) => a.application_id)));
-    const { data: logs } = await admin.from("application_reminder_log")
-      .select("application_id").eq("reminder_kind", REMINDER_KIND).in("application_id", appIds);
-    const done = new Set((logs ?? []).map((r: any) => r.application_id));
+    const apptIds = appts.map((a: any) => a.id);
+    const { data: sentLogs } = await admin.from("email_send_log")
+      .select("metadata")
+      .eq("template_name", REMINDER_KIND)
+      .eq("status", "sent");
+    const doneAppts = new Set(
+      (sentLogs ?? [])
+        .map((r: any) => r?.metadata?.appointment_id)
+        .filter((id: string | null | undefined) => id && apptIds.includes(id)),
+    );
 
     // Retry-Cap: pro Appointment max. 3 Fails in email_send_log → dann skippen.
-    const apptIds = appts.map((a: any) => a.id);
     const { data: failLogs } = await admin.from("email_send_log")
       .select("metadata")
       .eq("template_name", REMINDER_KIND)
@@ -178,8 +184,8 @@ serve(async (req) => {
       Array.from(failCount.entries()).filter(([, n]) => n >= 3).map(([id]) => id),
     );
 
-    const todo = appts.filter((a: any) => !done.has(a.application_id) && !capped.has(a.id));
-    if (todo.length === 0) return json({ success: true, version: FUNCTION_VERSION, candidates: appts.length, sent: 0, skipped_already_sent: appts.length - capped.size, skipped_retry_cap: capped.size });
+    const todo = appts.filter((a: any) => !doneAppts.has(a.id) && !capped.has(a.id));
+    if (todo.length === 0) return json({ success: true, version: FUNCTION_VERSION, candidates: appts.length, sent: 0, skipped_already_sent: doneAppts.size, skipped_retry_cap: capped.size });
 
     const { data: apps } = await admin.from("applications")
       .select("id, email, first_name, last_name, full_name, tenant_id, target_landing_id, source_landing_id")
