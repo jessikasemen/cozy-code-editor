@@ -86,6 +86,40 @@ export function SuppressedRecipientsPanel() {
         <span>Tenant-weite Auto-Pausen sind deaktiviert. Ein einzelner SMTP-Hänger blockiert nie mehr alle Bewerber.</span>
       </div>
 
+      <div className="rounded-xl border p-3 space-y-2 bg-card">
+        <div className="flex items-center gap-2">
+          <Ban className="h-4 w-4 text-destructive" />
+          <h4 className="text-sm font-semibold">Adresse manuell sperren</h4>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Blockiert alle künftigen Mails an diese Adresse <strong>und</strong> verhindert eine
+          Neu-Registrierung. Falls bereits ein Account existiert, wird der Login deaktiviert.
+        </p>
+        <div className="flex gap-2 flex-wrap">
+          <Input
+            type="email" placeholder="max@example.com"
+            value={newEmail} onChange={(e) => setNewEmail(e.target.value)}
+            className="flex-1 min-w-[220px] h-9 text-xs"
+            disabled={blocking}
+          />
+          <Input
+            type="text" placeholder="Grund (optional)"
+            value={newReason} onChange={(e) => setNewReason(e.target.value)}
+            className="flex-1 min-w-[180px] h-9 text-xs"
+            disabled={blocking}
+          />
+          <Button
+            size="sm" variant="destructive" onClick={handleBlock}
+            disabled={blocking || !newEmail.trim()}
+            className="h-9 gap-1.5"
+          >
+            {blocking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Ban className="h-3.5 w-3.5" />}
+            Sperren
+          </Button>
+        </div>
+      </div>
+
+
       {loading ? (
         <div className="text-center py-12 text-sm text-muted-foreground">
           <Loader2 className="h-5 w-5 animate-spin mx-auto mb-2" /> Lade…
