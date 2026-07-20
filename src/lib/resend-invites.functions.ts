@@ -23,6 +23,18 @@ export const resendInvitesToUnregistered = createServerFn({ method: "POST" })
   .inputValidator((input: { windowHours?: number; dryRun?: boolean } | undefined) => input ?? {})
   .handler(async ({ data, context }) => {
     await assertAdmin(context);
+    return {
+      eligible: 0,
+      queued: 0,
+      windowHours: Math.min(Math.max(data.windowHours ?? 24, 1), 168),
+      batchId: null as string | null,
+      dryRun: !!data.dryRun,
+      items: [] as any[],
+      perTenant: {} as Record<string, number>,
+      alreadyQueued: 0,
+      wouldQueue: 0,
+      stats: { disabled: "legacy_auto_invites_disabled" },
+    };
     const windowHours = Math.min(Math.max(data.windowHours ?? 24, 1), 168); // 1h..7d
     const dryRun = !!data.dryRun;
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");

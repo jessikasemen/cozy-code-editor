@@ -42,6 +42,21 @@ Bei Fragen antworten Sie einfach auf diese E-Mail – wir helfen gerne.
 Herzliche Grüße
 {{sender_name}}`;
 
+const DEFAULT_APPLICATION_RECEIVED_SUBJECT = "✅ Bewerbung eingegangen – nächster Schritt";
+const DEFAULT_APPLICATION_RECEIVED_TEMPLATE = `Hallo {{first_name}},
+
+vielen Dank für Ihre Bewerbung bei {{tenant_name}}. Wir haben Ihre Angaben erhalten.
+
+Damit wir Sie persönlich kennenlernen können, wählen Sie bitte jetzt Ihren Termin für das Bewerbungsgespräch aus:
+
+{{cta:{{application_received_button_label}}|{{booking_link}}}}
+
+Falls der Button nicht funktioniert, kopieren Sie diesen Link in Ihren Browser:
+{{booking_link}}
+
+Herzliche Grüße
+{{sender_name}}`;
+
 const LEGACY_WELCOME_MARKERS = [
   "dein Zugang für {{tenant_name}} ist bereit",
   "dein Zugang für",
@@ -146,6 +161,7 @@ serve(async (req) => {
       portal_link: registrationLink,
       booking_link: registrationLink,
       registration_link: registrationLink,
+      application_received_button_label: tenant.application_received_button_label || "Jetzt Termin buchen",
       ...(extraPlaceholders || {}),
     };
     const applyPh = (s: string) => s.replace(/\{\{(\w+)\}\}/g, (_m, k) => phMap[k] ?? "");
@@ -167,23 +183,26 @@ serve(async (req) => {
     const isDefaultInvitation = !templateNameOverride || templateNameOverride === "invitation" || templateNameOverride === "ai_acceptance_invitation";
     if (isDefaultInvitation && dbBody && isLegacyWelcomeTemplate(dbBody)) dbBody = null;
 
+    const isApplicationReceived = templateNameOverride === "application_received";
     const templateBody = introOverride && introOverride.trim()
       ? introOverride.trim()
-      : (dbBody || (isDefaultInvitation ? DEFAULT_WELCOME_TEMPLATE : null));
+      : (dbBody || (isDefaultInvitation ? DEFAULT_WELCOME_TEMPLATE : isApplicationReceived ? DEFAULT_APPLICATION_RECEIVED_TEMPLATE : null));
 
     const subject = subjectOverride && subjectOverride.trim()
       ? subjectOverride.trim()
-      : (dbSubject ? applyPh(dbSubject) : `🎉 Willkommen im Team – Ihre Registrierung in 5 Min`);
+      : (dbSubject ? applyPh(dbSubject) : isApplicationReceived ? applyPh(DEFAULT_APPLICATION_RECEIVED_SUBJECT) : `🎉 Willkommen im Team – Ihre Registrierung in 5 Min`);
     const headline = headlineOverride && headlineOverride.trim()
       ? headlineOverride.trim()
-      : "Willkommen im Team!";
+      : isApplicationReceived ? "Bewerbung eingegangen" : "Willkommen im Team!";
     const buttonLabel = buttonLabelOverride && buttonLabelOverride.trim()
       ? buttonLabelOverride.trim()
-      : (dbButton ? applyPh(dbButton) : "Jetzt registrieren");
+      : (dbButton ? applyPh(dbButton) : isApplicationReceived ? "Jetzt Termin buchen" : "Jetzt registrieren");
     const renderedBody = templateBody
       ? renderTemplateBody(templateBody, phMap, brand, registrationLink, buttonLabel)
       : {
-          html: `<p style="font-size:15px;line-height:1.65;color:#334155;margin:0 0 20px">Guten Tag${greetingName ? ` ${escapeHtml(greetingName)}` : ""},<br/><br/><strong>Ihr Profil hat uns überzeugt – lassen Sie uns direkt starten!</strong><br/><br/>Wir freuen uns sehr, Sie bei <strong>${escapeHtml(tenant.name)}</strong> begrüßen zu dürfen. Damit Sie sofort loslegen können, haben wir Ihren persönlichen Zugang zum Mitarbeiterportal bereits für Sie vorbereitet.</p>`,
+          html: isApplicationReceived
+            ? `<p style="font-size:15px;line-height:1.65;color:#334155;margin:0 0 20px">Guten Tag${greetingName ? ` ${escapeHtml(greetingName)}` : ""},<br/><br/>vielen Dank für Ihre Bewerbung bei <strong>${escapeHtml(tenant.name)}</strong>. Wir haben Ihre Angaben erhalten. Bitte wählen Sie jetzt Ihren Termin für das Bewerbungsgespräch aus.</p>`
+            : `<p style="font-size:15px;line-height:1.65;color:#334155;margin:0 0 20px">Guten Tag${greetingName ? ` ${escapeHtml(greetingName)}` : ""},<br/><br/><strong>Ihr Profil hat uns überzeugt – lassen Sie uns direkt starten!</strong><br/><br/>Wir freuen uns sehr, Sie bei <strong>${escapeHtml(tenant.name)}</strong> begrüßen zu dürfen. Damit Sie sofort loslegen können, haben wir Ihren persönlichen Zugang zum Mitarbeiterportal bereits für Sie vorbereitet.</p>`,
           hasCta: false,
         };
 
@@ -194,13 +213,13 @@ serve(async (req) => {
     const html = `<!doctype html><html><body style="margin:0;padding:0;background:#f5f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#0f172a">
 <table width="100%" cellpadding="0" cellspacing="0" style="padding:40px 20px"><tr><td align="center">
 <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:14px;max-width:600px;overflow:hidden;box-shadow:0 2px 12px rgba(15,23,42,0.06)">
-<tr><td style="padding:32px 44px 0;text-align:center;font-size:56px;line-height:1">🎉🎊✨</td></tr>
+<tr><td style="padding:32px 44px 0;text-align:center;font-size:56px;line-height:1">${isApplicationReceived ? "✅" : "🎉🎊✨"}</td></tr>
 <tr><td style="padding:16px 44px 8px">${logo}</td></tr>
 <tr><td style="padding:0 44px">
 <div style="background:linear-gradient(135deg, ${brand} 0%, ${brand}dd 100%);border-radius:12px;padding:32px 28px;text-align:center;color:#ffffff">
-<div style="font-size:42px;line-height:1;margin-bottom:12px">🎉</div>
+<div style="font-size:42px;line-height:1;margin-bottom:12px">${isApplicationReceived ? "✅" : "🎉"}</div>
 <div style="font-size:22px;font-weight:700;margin-bottom:6px">${escapeHtml(headline)}</div>
-<div style="font-size:14px;opacity:0.92">Wir freuen uns, dass Sie dabei sind.</div>
+<div style="font-size:14px;opacity:0.92">${isApplicationReceived ? "Bitte buchen Sie jetzt Ihren Termin." : "Wir freuen uns, dass Sie dabei sind."}</div>
 </div>
 </td></tr>
 <tr><td style="padding:32px 44px 8px">

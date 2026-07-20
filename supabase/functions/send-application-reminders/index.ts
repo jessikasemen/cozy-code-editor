@@ -285,6 +285,11 @@ function appendUtm(url: string, appId: string): string {
   return has ? url : `${url}${sep}utm_content=${encodeURIComponent(appId)}`;
 }
 
+function portalHost(domain: unknown): string {
+  const clean = String(domain ?? "").trim().replace(/^https?:\/\//, "").replace(/\/+$/, "").replace(/^portal\./, "");
+  return clean ? `portal.${clean}` : "";
+}
+
 function smtpErrorMessage(e: unknown): string {
   return String((e as any)?.message ?? e ?? "SMTP error").slice(0, 500);
 }
@@ -606,15 +611,16 @@ serve(async (req) => {
 
       // Fast-Track-Landing (die tatsächlich das Portal + KI-Interview hostet) ermitteln.
       const fastTrackLanding: LandingRow | null =
-        targetLanding
-        || (sourceLanding?.linked_fasttrack_landing_id
+        (sourceLanding?.linked_fasttrack_landing_id
               ? landingMap.get(sourceLanding.linked_fasttrack_landing_id) ?? null
               : null)
+        || targetLanding
         || (isInternalBooking(landing) ? landing : null);
       const fastTrackDomain = String(fastTrackLanding?.domain || tenant.primary_domain || tenant.domain || "").trim();
+      const fastTrackHost = portalHost(fastTrackDomain);
 
       // Internes Buchungssystem? → Rebook-Link auf portal.<fast-track-domain>/termin/buchen/<magic_token>
-      const useInternalBooking = !!(app.magic_token && fastTrackDomain
+      const useInternalBooking = !!(app.magic_token && fastTrackHost
         && (isInternalBooking(sourceLanding) || isInternalBooking(targetLanding) || isInternalBooking(fastTrackLanding)));
 
       const rawCalendly = calendlyFromLanding(landing);
@@ -636,7 +642,7 @@ serve(async (req) => {
         portalLink = `https://portal.${activeDomain}/register?token=${encodeURIComponent(inviteToken)}&ref=${encodeURIComponent(app.id)}`;
       } else if (useInternalBooking) {
         // Neuer/verpasster Termin → Bewerber landet im Fast-Track-Portal-Kalender.
-        rebookLink = `https://portal.${fastTrackDomain}/termin/buchen/${encodeURIComponent(app.magic_token)}?rebook=1`;
+        rebookLink = `https://${fastTrackHost}/termin/buchen/${encodeURIComponent(app.magic_token)}?rebook=1`;
         calendlyLink = rebookLink; // Fallback für Templates, die noch {{calendly_link}} referenzieren
       } else {
         if (!rawCalendly) {
@@ -675,7 +681,7 @@ serve(async (req) => {
       const recruiter = landing?.recruiter_name || landing?.branding?.recruiter_name || tenant.sender_name || tenant.name;
 
       const scheduledDate = app.scheduled_at ? new Date(app.scheduled_at) : null;
-      const portalUrl = fastTrackDomain ? `https://portal.${fastTrackDomain}` : "";
+      const portalUrl = fastTrackHost ? `https://${fastTrackHost}` : "";
       const vars: Record<string, string> = {
         first_name: firstName(app.full_name),
         full_name: app.full_name ?? "",

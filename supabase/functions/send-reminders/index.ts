@@ -437,6 +437,11 @@ async function logEmailSend(
 
 // ───── 1. Invite-Reminder ─────
 async function runInvites(ctx: SendCtx) {
+  // Legacy-Automatik deaktiviert: Registrierungs-/Willkommens-Mails dürfen
+  // nicht mehr allein durch status='akzeptiert' ausgelöst werden. Einladung
+  // nur noch explizit nach Recruiter-Zusage über advanceApplicationStage.
+  ctx.results.push({ type: "invite", status: "skipped", error: "legacy_auto_invites_disabled" });
+  return;
   // Akzeptierte Bewerbungen, älter als 3 Tage
   const cutoff = new Date(Date.now() - MIN_DAYS_BETWEEN * 86400_000).toISOString();
   const { data: apps, error } = await ctx.admin
