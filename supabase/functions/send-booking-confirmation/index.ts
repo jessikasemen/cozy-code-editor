@@ -263,7 +263,7 @@ serve(async (req) => {
       });
 
       const ics = buildIcs({
-        uid: `${appt.id}@${domain || "mb-portal"}`,
+        uid: `${appt.id}@${fastTrackDomain || "mb-portal"}`,
         title: `Bewerbungsgespräch – ${tenant.name}`,
         description: `Bewerbungsgespräch mit ${recruiterName}. Termin verwalten: ${cancelUrl}`,
         start: starts, end: ends, url: cancelUrl,
