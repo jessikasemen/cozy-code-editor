@@ -242,15 +242,27 @@ serve(async (req) => {
         || (isBrokerLp(sourceLanding) ? null : sourceLanding);
       if (isBrokerLp(fastTrackLanding)) fastTrackLanding = null;
       const landing = sourceLanding || targetLanding;
-      const fastTrackDomain = fastTrackLanding?.domain || tenant.primary_domain || tenant.domain;
+      // Wichtig: niemals auf Broker-/Vermittlungs-Domain zurückfallen.
+      // Wenn keine Fast-Track-Landing verknüpft ist, wird die Mail geskippt,
+      // statt einen falschen portal.<vermittlungs-domain>-Link zu versenden.
+      const fastTrackDomain = fastTrackLanding?.domain || "";
       const fastTrackHost = portalHost(fastTrackDomain);
+
+      if (!fastTrackHost) {
+        skipped++;
+        results.push({ id: appt.id, status: "skipped", reason: "missing_fasttrack_portal_domain" });
+        await admin.from("application_reminder_log").upsert({
+          application_id: app.id, tenant_id: tenant.id, reminder_kind: REMINDER_KIND,
+          recipient_email: app.email, status: "skipped", error: "missing_fasttrack_portal_domain",
+        }, { onConflict: "application_id,reminder_kind" });
+        await logEmailSend(admin, tenant, appt, app, "(nicht gesendet)", null, "failed", "missing_fasttrack_portal_domain");
+        continue;
+      }
 
       const recruiterName = landing?.recruiter_name || tenant.name;
       const recruiterAvatar = landing?.recruiter_avatar_url || null;
       // Cancel-/Rebook-Link: immer auf portal.<fast-track-domain>, dort läuft das Buchungssystem.
-      const cancelUrl = fastTrackHost
-        ? `https://${fastTrackHost}/termin/${appt.cancel_token}`
-        : `/termin/${appt.cancel_token}`;
+      const cancelUrl = `https://${fastTrackHost}/termin/${appt.cancel_token}`;
 
       const starts = new Date(appt.starts_at);
       const ends = new Date(appt.ends_at);
