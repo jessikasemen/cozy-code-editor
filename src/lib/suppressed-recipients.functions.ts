@@ -70,5 +70,66 @@ export const unsuppressRecipient = createServerFn({ method: "POST" })
       .update({ suppressed_at: null, consecutive_failures: 0, updated_at: new Date().toISOString() })
       .eq("recipient_email", key);
     if (error) throw new Error(error.message);
+    // Zusätzlich: falls Adresse als "manuell" in suppressed_emails liegt → entfernen
+    await sb.from("suppressed_emails").delete().ilike("email", key);
     return { ok: true };
   });
+
+/**
+ * Manuelle Sperre einer E-Mail-Adresse durch Admin.
+ * Blockiert:
+ *   - alle künftigen App-Mails (Trigger auto_suppress + suppressed_emails)
+ *   - Neu-Registrierung mit dieser Adresse (Check in send-signup-confirmation)
+ */
+export const blockRecipient = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) =>
+    z.object({
+      recipient_email: z.string().email(),
+      reason: z.string().max(200).optional(),
+    }).parse(input)
+  )
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context);
+    const sb = await getAdmin();
+    const key = data.recipient_email.toLowerCase().trim();
+    const reason = data.reason?.trim() || "Manuell gesperrt durch Admin";
+    const now = new Date().toISOString();
+
+    // 1. Recipient-Failures (blockt App-Mails via Suppression-Check)
+    const { error: e1 } = await sb.from("email_recipient_failures").upsert(
+      {
+        recipient_email: key,
+        consecutive_failures: 999,
+        last_failed_at: now,
+        last_error: reason,
+        suppressed_at: now,
+        updated_at: now,
+      },
+      { onConflict: "recipient_email" },
+    );
+    if (e1) throw new Error(e1.message);
+
+    // 2. Globale suppressed_emails (blockt u.a. Neu-Registrierung + Chat-Reminder)
+    await sb.from("suppressed_emails").upsert(
+      { tenant_id: null, email: key, reason: `manual:${reason}`, source: "admin" },
+      { onConflict: "tenant_id,email", ignoreDuplicates: false },
+    );
+
+    // 3. Wenn ein Account mit dieser Adresse existiert → sperren (Login unmöglich)
+    try {
+      const { data: list } = await sb.auth.admin.listUsers({ page: 1, perPage: 1000 });
+      const existing = list?.users.find((u: any) => (u.email ?? "").toLowerCase() === key);
+      if (existing) {
+        await sb.auth.admin.updateUserById(existing.id, {
+          ban_duration: "876000h", // ~100 Jahre
+          user_metadata: { ...(existing.user_metadata || {}), blocked_reason: reason, blocked_at: now },
+        });
+      }
+    } catch (e) {
+      console.warn("block existing auth user failed:", e);
+    }
+
+    return { ok: true };
+  });
+
