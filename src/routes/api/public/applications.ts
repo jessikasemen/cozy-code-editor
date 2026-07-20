@@ -659,7 +659,7 @@ export const Route = createFileRoute("/api/public/applications")({
             email_status = { attempted: true, status: "failed", template: "application_received", reason };
             await logMailResult("application_received", "failed", reason);
           }
-        } else if (!isFast && !wasNewlyCreated && !d.is_test) {
+        } else if (!wasNewlyCreated && !d.is_test) {
           email_status = { attempted: false, status: "skipped", template: "application_received", reason: "duplicate_application" };
           await logMailResult("application_received", "skipped", "duplicate_application");
         }
