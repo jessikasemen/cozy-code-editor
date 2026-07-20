@@ -124,11 +124,40 @@ serve(async (req) => {
     );
     const supabase = supabaseAdmin;
 
+    // Zentrales SMTP-Routing: wenn applicationId + bekannter templateName vorliegen,
+    // ermittelt der Resolver den korrekten Tenant (Broker vs. Fast-Track) — unabhängig
+    // vom übergebenen tenantId. Damit sendet z.B. "welcome/registration" IMMER über
+    // Fast-Track-SMTP, auch wenn der Caller versehentlich den Broker-Tenant mitschickt.
+    let effectiveTenantId = tenantId;
+    const routingKind = TEMPLATE_TO_KIND[templateNameOverride ?? "invitation"];
+    if (body.applicationId && routingKind) {
+      const resolved = await resolveSender(supabaseAdmin, body.applicationId, routingKind);
+      if (resolved.tenant?.id) {
+        if (resolved.tenant.id !== tenantId) {
+          console.log("[send-invitation-email] tenant_reroute", {
+            application_id: body.applicationId,
+            template: templateNameOverride,
+            kind: routingKind,
+            from: tenantId, to: resolved.tenant.id,
+          });
+        }
+        effectiveTenantId = resolved.tenant.id;
+      } else {
+        console.warn("[send-invitation-email] routing_skip", {
+          application_id: body.applicationId, template: templateNameOverride,
+          kind: routingKind, reason: resolved.reason,
+        });
+        return json({ error: `routing_skip: ${resolved.reason}`, skipped: true, routing_reason: resolved.reason }, 409);
+      }
+    }
+
+
     const { data: tenant, error: tErr } = await supabaseAdmin
       .from("tenants")
       .select("id, name, domain, logo_url, primary_color, sender_email, sender_name, reply_to_email, smtp_host, smtp_port, smtp_username, smtp_password, is_active, emails_paused, emails_paused_reason, emails_paused_by, welcome_email_subject, welcome_email_body, application_received_subject, application_received_body, application_received_button_label")
-      .eq("id", tenantId)
+      .eq("id", effectiveTenantId)
       .maybeSingle();
+
     if (tErr || !tenant) return json({ error: "Tenant nicht gefunden" }, 404);
     if (tenant.is_active === false) {
       return json({ error: "Tenant ist deaktiviert — kein E-Mail-Versand.", inactive: true }, 503);
