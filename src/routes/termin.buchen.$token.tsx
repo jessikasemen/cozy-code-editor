@@ -15,6 +15,9 @@ import {
 import { useToast } from "@/hooks/use-toast";
 
 export const Route = createFileRoute("/termin/buchen/$token")({
+  validateSearch: (s: Record<string, unknown>) => ({
+    rebook: s.rebook === "1" || s.rebook === 1 || s.rebook === true,
+  }),
   head: () => ({
     meta: [
       { title: "Termin für Bewerbungsgespräch wählen" },
@@ -28,6 +31,7 @@ const DAYS_PER_VIEW = 28;
 
 function BookingPage() {
   const { token } = Route.useParams();
+  const { rebook } = Route.useSearch();
   const { toast } = useToast();
   const qc = useQueryClient();
   const scheduleFn = useServerFn(getScheduleForApplicant);
@@ -132,6 +136,13 @@ function BookingPage() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-muted/30 py-10 px-4">
       <div className="max-w-3xl mx-auto">
+        {rebook && (
+          <div className="mb-4 rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+            <strong className="block mb-1">Ihr letzter Termin wurde nicht wahrgenommen.</strong>
+            Kein Problem – wählen Sie hier bitte einen neuen Zeitpunkt für Ihr Bewerbungsgespräch.
+            Ihr bisheriger Termin wird beim Bestätigen automatisch storniert.
+          </div>
+        )}
         <Card>
           <CardHeader>
             <CardTitle>

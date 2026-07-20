@@ -124,6 +124,9 @@ type LandingRow = {
   branding?: any;
   recruiter_name?: string | null;
   updated_at?: string | null;
+  booking_mode?: string | null;
+  domain?: string | null;
+  linked_fasttrack_landing_id?: string | null;
 };
 
 function normalizeKey(value: unknown): string {
@@ -132,6 +135,10 @@ function normalizeKey(value: unknown): string {
 
 function calendlyFromLanding(landing: LandingRow | null | undefined): string {
   return String(landing?.calendly_url || landing?.branding?.calendly_url || "").trim();
+}
+
+function isInternalBooking(landing: LandingRow | null | undefined): boolean {
+  return String(landing?.booking_mode || "").toLowerCase() === "internal";
 }
 
 function toLanding(row: any): LandingRow {
@@ -144,6 +151,9 @@ function toLanding(row: any): LandingRow {
     branding: row?.branding ?? null,
     recruiter_name: row?.recruiter_name ?? null,
     updated_at: row?.updated_at ?? null,
+    booking_mode: row?.booking_mode ?? null,
+    domain: row?.domain ?? null,
+    linked_fasttrack_landing_id: row?.linked_fasttrack_landing_id ?? null,
   };
 }
 
@@ -323,34 +333,34 @@ serve(async (req) => {
     const since = new Date(now - 10 * 86400_000).toISOString();
     const { data: apps, error: aErr } = await admin
       .from("applications")
-      .select("id,tenant_id,source_slug,source_landing_id,target_landing_id,full_name,email,status,created_at,updated_at,booking_status,scheduled_at,interview_started_at,interview_completed_at,flow_type")
+      .select("id,tenant_id,source_slug,source_landing_id,target_landing_id,full_name,email,status,created_at,updated_at,booking_status,scheduled_at,interview_started_at,interview_completed_at,flow_type,magic_token")
       .gte("created_at", since);
     if (aErr) return json({ error: aErr.message }, 500);
 
     if (!apps?.length) return json({ success: true, dry_run: dryRun, candidates: 0, sent: 0, skipped: 0, failed: 0 });
 
-    // Landing-Pages mit Calendly-Link (direkte Zuordnung via source_landing_id / target_landing_id)
+    // Landing-Pages (direkte Zuordnung via source_landing_id / target_landing_id)
     const landingIds = Array.from(new Set(apps.flatMap((a: any) => [a.source_landing_id, a.target_landing_id]).filter(Boolean)));
     const landingMap = new Map<string, LandingRow>();
     const landingErrors: Record<string, string> = {};
+    const LANDING_COLS = "id,tenant_id,slug,source_slug,calendly_url,branding,updated_at,booking_mode,domain,linked_fasttrack_landing_id";
     if (landingIds.length) {
       const { data: lps, error: lpErr } = await admin.from("landing_pages")
-        .select("id,tenant_id,slug,source_slug,calendly_url,branding,updated_at")
+        .select(LANDING_COLS)
         .in("id", landingIds);
       if (lpErr) landingErrors.direct = lpErr.message;
       for (const l of (lps ?? []) as any[]) landingMap.set(l.id, toLanding(l));
     }
 
-    // Legacy-Fallback: ältere Bewerbungen haben oft source_landing_id = NULL,
-    // aber source_slug ist noch gesetzt. Daher zusätzlich Landing per slug/source_slug laden.
+    // Legacy-Fallback über slug / source_slug.
     const sourceSlugs = Array.from(new Set(apps.map((a: any) => normalizeKey(a.source_slug)).filter(Boolean)));
     const slugLandingMap = new Map<string, LandingRow>();
     if (sourceSlugs.length) {
       const { data: bySlug, error: bsErr } = await admin.from("landing_pages")
-        .select("id,tenant_id,slug,source_slug,calendly_url,branding,updated_at")
+        .select(LANDING_COLS)
         .in("slug", sourceSlugs);
       const { data: bySourceSlug, error: bssErr } = await admin.from("landing_pages")
-        .select("id,tenant_id,slug,source_slug,calendly_url,branding,updated_at")
+        .select(LANDING_COLS)
         .in("source_slug", sourceSlugs);
       if (bsErr) landingErrors.by_slug = bsErr.message;
       if (bssErr) landingErrors.by_source_slug = bssErr.message;
@@ -359,26 +369,37 @@ serve(async (req) => {
         const keys = [landing.slug, landing.source_slug].map(normalizeKey).filter(Boolean);
         for (const key of keys) {
           const current = slugLandingMap.get(key);
-          if (!current || (!calendlyFromLanding(current) && calendlyFromLanding(landing))) slugLandingMap.set(key, landing);
+          if (!current || (!calendlyFromLanding(current) && !isInternalBooking(current)
+              && (calendlyFromLanding(landing) || isInternalBooking(landing)))) {
+            slugLandingMap.set(key, landing);
+          }
         }
       }
     }
 
-    // Fallback: pro Tenant erste Landing-Page mit Calendly-Link (für Apps ohne source_landing_id
-    // oder wenn deren Landing keinen Calendly-Link hat — z.B. Legacy-/Direktbewerbungen).
+    // Ziel-Landing (Fast-Track) für Broker-Landings vorladen — brauchen wir für portal-Domain-Auflösung.
+    const linkedIds = Array.from(new Set(
+      Array.from(landingMap.values()).map((l) => l.linked_fasttrack_landing_id).filter(Boolean) as string[],
+    )).filter((id) => !landingMap.has(id));
+    if (linkedIds.length) {
+      const { data: linkedLps } = await admin.from("landing_pages").select(LANDING_COLS).in("id", linkedIds);
+      for (const l of (linkedLps ?? []) as any[]) landingMap.set(l.id, toLanding(l));
+    }
+
+    // Tenant-Fallback (nur relevant für Calendly-basierte Legacy-Flows).
     const tenantIdsForFallback = Array.from(new Set(apps.map((a: any) => a.tenant_id).filter(Boolean)));
     const tenantLandingFallback = new Map<string, LandingRow>();
     let tenantLandingRawCount = 0;
     if (tenantIdsForFallback.length) {
       const { data: tlps, error: tlpErr } = await admin.from("landing_pages")
-        .select("id,tenant_id,slug,source_slug,calendly_url,branding,updated_at")
+        .select(LANDING_COLS)
         .in("tenant_id", tenantIdsForFallback)
         .order("updated_at", { ascending: false });
       if (tlpErr) landingErrors.tenant = tlpErr.message;
       tenantLandingRawCount = (tlps ?? []).length;
       for (const l of (tlps ?? []) as any[]) {
         const landing = toLanding(l);
-        if (!tenantLandingFallback.has(l.tenant_id) && calendlyFromLanding(landing)) {
+        if (!tenantLandingFallback.has(l.tenant_id) && (calendlyFromLanding(landing) || isInternalBooking(landing))) {
           tenantLandingFallback.set(l.tenant_id, landing);
         }
       }
@@ -575,16 +596,33 @@ serve(async (req) => {
       const isNoShow = kind === "no_show_24h";
       const isRebook = kind === "rebook_after_cancel_24h" || kind === "rebook_after_cancel_72h";
 
-      const landing = (app.source_landing_id ? landingMap.get(app.source_landing_id) : null)
-        || (app.target_landing_id ? landingMap.get(app.target_landing_id) : null)
+      const sourceLanding = app.source_landing_id ? landingMap.get(app.source_landing_id) : null;
+      const targetLanding = app.target_landing_id ? landingMap.get(app.target_landing_id) : null;
+      const landing = sourceLanding
+        || targetLanding
         || (app.source_slug ? slugLandingMap.get(normalizeKey(app.source_slug)) : null)
         || tenantLandingFallback.get(app.tenant_id)
         || null;
+
+      // Fast-Track-Landing (die tatsächlich das Portal + KI-Interview hostet) ermitteln.
+      const fastTrackLanding: LandingRow | null =
+        targetLanding
+        || (sourceLanding?.linked_fasttrack_landing_id
+              ? landingMap.get(sourceLanding.linked_fasttrack_landing_id) ?? null
+              : null)
+        || (isInternalBooking(landing) ? landing : null);
+      const fastTrackDomain = String(fastTrackLanding?.domain || tenant.primary_domain || tenant.domain || "").trim();
+
+      // Internes Buchungssystem? → Rebook-Link auf portal.<fast-track-domain>/termin/buchen/<magic_token>
+      const useInternalBooking = !!(app.magic_token && fastTrackDomain
+        && (isInternalBooking(sourceLanding) || isInternalBooking(targetLanding) || isInternalBooking(fastTrackLanding)));
+
       const rawCalendly = calendlyFromLanding(landing);
 
       // Registration-Reminder braucht KEIN Calendly, sondern portal_link.
       let calendlyLink = "";
       let portalLink = "";
+      let rebookLink = "";
       if (isRegistration) {
         if (!inviteToken) {
           skipped++; results.push({ app: app.id, kind, status: "skipped", reason: "no_invite_token" });
@@ -596,6 +634,10 @@ serve(async (req) => {
           continue;
         }
         portalLink = `https://portal.${activeDomain}/register?token=${encodeURIComponent(inviteToken)}&ref=${encodeURIComponent(app.id)}`;
+      } else if (useInternalBooking) {
+        // Neuer/verpasster Termin → Bewerber landet im Fast-Track-Portal-Kalender.
+        rebookLink = `https://portal.${fastTrackDomain}/termin/buchen/${encodeURIComponent(app.magic_token)}?rebook=1`;
+        calendlyLink = rebookLink; // Fallback für Templates, die noch {{calendly_link}} referenzieren
       } else {
         if (!rawCalendly) {
           skipped++; results.push({
@@ -633,6 +675,7 @@ serve(async (req) => {
       const recruiter = landing?.recruiter_name || landing?.branding?.recruiter_name || tenant.sender_name || tenant.name;
 
       const scheduledDate = app.scheduled_at ? new Date(app.scheduled_at) : null;
+      const portalUrl = fastTrackDomain ? `https://portal.${fastTrackDomain}` : "";
       const vars: Record<string, string> = {
         first_name: firstName(app.full_name),
         full_name: app.full_name ?? "",
@@ -640,7 +683,9 @@ serve(async (req) => {
         tenant_name: tenant.name,
         recruiter_name: recruiter,
         calendly_link: calendlyLink,
+        rebook_link: rebookLink || calendlyLink,
         portal_link: portalLink,
+        portal_url: portalUrl,
         appointment_date: scheduledDate ? scheduledDate.toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long" }) : "",
         appointment_time: scheduledDate ? scheduledDate.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }) : "",
       };
