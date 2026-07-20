@@ -124,6 +124,9 @@ type LandingRow = {
   branding?: any;
   recruiter_name?: string | null;
   updated_at?: string | null;
+  booking_mode?: string | null;
+  domain?: string | null;
+  linked_fasttrack_landing_id?: string | null;
 };
 
 function normalizeKey(value: unknown): string {
@@ -132,6 +135,10 @@ function normalizeKey(value: unknown): string {
 
 function calendlyFromLanding(landing: LandingRow | null | undefined): string {
   return String(landing?.calendly_url || landing?.branding?.calendly_url || "").trim();
+}
+
+function isInternalBooking(landing: LandingRow | null | undefined): boolean {
+  return String(landing?.booking_mode || "").toLowerCase() === "internal";
 }
 
 function toLanding(row: any): LandingRow {
@@ -144,6 +151,9 @@ function toLanding(row: any): LandingRow {
     branding: row?.branding ?? null,
     recruiter_name: row?.recruiter_name ?? null,
     updated_at: row?.updated_at ?? null,
+    booking_mode: row?.booking_mode ?? null,
+    domain: row?.domain ?? null,
+    linked_fasttrack_landing_id: row?.linked_fasttrack_landing_id ?? null,
   };
 }
 
