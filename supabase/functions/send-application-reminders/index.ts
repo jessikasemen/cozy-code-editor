@@ -457,7 +457,7 @@ serve(async (req) => {
       }
       // Registrierte Bewerber = existiert Profil mit gleicher E-Mail im gleichen Tenant
       const emails = Array.from(new Set(acceptedApps.map((a) => a.email.toLowerCase().trim())));
-      const tenantIds = Array.from(new Set(acceptedApps.map((a) => a.tenant_id)));
+      const tenantIds = Array.from(new Set(acceptedApps.map((a) => a.fasttrack_tenant_id ?? a.tenant_id).filter(Boolean)));
       if (emails.length && tenantIds.length) {
         const { data: profs } = await admin
           .from("profiles")
@@ -493,7 +493,8 @@ serve(async (req) => {
       // 2) Registration Pending (Zusage erteilt, aber nicht registriert)
       const invite = tokensByAppId.get(a.id);
       if (invite) {
-        const emailKey = `${a.tenant_id}|${String(a.email).toLowerCase().trim()}`;
+        const registrationTenantId = a.fasttrack_tenant_id ?? a.tenant_id;
+        const emailKey = `${registrationTenantId}|${String(a.email).toLowerCase().trim()}`;
         const isRegistered = registeredEmails.has(emailKey);
         if (!isRegistered) {
           const inviteAgeMin = (now - new Date(invite.created_at).getTime()) / 60_000;
