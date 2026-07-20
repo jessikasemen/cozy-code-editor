@@ -11,6 +11,8 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import nodemailer from "https://esm.sh/nodemailer@6.9.14";
+import { resolveSender, type EmailKind } from "../_shared/sender-resolver.ts";
+
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -83,7 +85,23 @@ interface Payload {
   templateName?: string;
   /** Extra placeholder values (z.B. {{partner_name}}) für DB-Templates. */
   placeholders?: Record<string, string>;
+  /** Optional: application_id → aktiviert zentrales SMTP-Routing (sender-resolver).
+   *  Ohne applicationId bleibt tenantId aus dem Payload maßgeblich (Legacy-Verhalten). */
+  applicationId?: string;
 }
+
+// Mapping template → EmailKind für den zentralen Resolver.
+// application_received bleibt beim Broker (source_landing.tenant). Alle
+// Registrierungs-/Welcome-Varianten werden zwangsweise auf Fast-Track umgeleitet.
+const TEMPLATE_TO_KIND: Record<string, EmailKind> = {
+  application_received: "broker_confirmation",
+  invitation: "fasttrack_registration_complete",
+  welcome: "fasttrack_registration_complete",
+  registration: "fasttrack_registration_complete",
+  registration_complete: "fasttrack_registration_complete",
+  bewerbung_magic_link: "broker_interview_invite",
+};
+
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -106,11 +124,40 @@ serve(async (req) => {
     );
     const supabase = supabaseAdmin;
 
+    // Zentrales SMTP-Routing: wenn applicationId + bekannter templateName vorliegen,
+    // ermittelt der Resolver den korrekten Tenant (Broker vs. Fast-Track) — unabhängig
+    // vom übergebenen tenantId. Damit sendet z.B. "welcome/registration" IMMER über
+    // Fast-Track-SMTP, auch wenn der Caller versehentlich den Broker-Tenant mitschickt.
+    let effectiveTenantId = tenantId;
+    const routingKind = TEMPLATE_TO_KIND[templateNameOverride ?? "invitation"];
+    if (body.applicationId && routingKind) {
+      const resolved = await resolveSender(supabaseAdmin, body.applicationId, routingKind);
+      if (resolved.tenant?.id) {
+        if (resolved.tenant.id !== tenantId) {
+          console.log("[send-invitation-email] tenant_reroute", {
+            application_id: body.applicationId,
+            template: templateNameOverride,
+            kind: routingKind,
+            from: tenantId, to: resolved.tenant.id,
+          });
+        }
+        effectiveTenantId = resolved.tenant.id;
+      } else {
+        console.warn("[send-invitation-email] routing_skip", {
+          application_id: body.applicationId, template: templateNameOverride,
+          kind: routingKind, reason: resolved.reason,
+        });
+        return json({ error: `routing_skip: ${resolved.reason}`, skipped: true, routing_reason: resolved.reason }, 409);
+      }
+    }
+
+
     const { data: tenant, error: tErr } = await supabaseAdmin
       .from("tenants")
       .select("id, name, domain, logo_url, primary_color, sender_email, sender_name, reply_to_email, smtp_host, smtp_port, smtp_username, smtp_password, is_active, emails_paused, emails_paused_reason, emails_paused_by, welcome_email_subject, welcome_email_body, application_received_subject, application_received_body, application_received_button_label")
-      .eq("id", tenantId)
+      .eq("id", effectiveTenantId)
       .maybeSingle();
+
     if (tErr || !tenant) return json({ error: "Tenant nicht gefunden" }, 404);
     if (tenant.is_active === false) {
       return json({ error: "Tenant ist deaktiviert — kein E-Mail-Versand.", inactive: true }, 503);
