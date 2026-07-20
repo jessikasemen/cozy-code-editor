@@ -192,7 +192,7 @@ serve(async (req) => {
       ...todo.map((a: any) => appMap.get(a.application_id)?.source_landing_id).filter(Boolean),
     ]));
     const { data: lpList } = lps.length
-      ? await admin.from("landing_pages").select("id, domain, recruiter_name, recruiter_avatar_url, linked_fasttrack_landing_id").in("id", lps)
+      ? await admin.from("landing_pages").select("id, domain, recruiter_name, recruiter_avatar_url, linked_fasttrack_landing_id, flow_type").in("id", lps)
       : { data: [] as any[] };
     const lpMap = new Map<string, any>((lpList ?? []).map((l: any) => [l.id, l]));
 
@@ -202,7 +202,7 @@ serve(async (req) => {
     )).filter((id) => !lpMap.has(id));
     if (extraIds.length) {
       const { data: extraLps } = await admin.from("landing_pages")
-        .select("id, domain, recruiter_name, recruiter_avatar_url, linked_fasttrack_landing_id").in("id", extraIds);
+        .select("id, domain, recruiter_name, recruiter_avatar_url, linked_fasttrack_landing_id, flow_type").in("id", extraIds);
       for (const l of (extraLps ?? []) as any[]) lpMap.set(l.id, l);
     }
 
@@ -219,12 +219,17 @@ serve(async (req) => {
 
       const sourceLanding = app.source_landing_id ? lpMap.get(app.source_landing_id) : null;
       const targetLanding = app.target_landing_id ? lpMap.get(app.target_landing_id) : null;
-      // Fast-Track-Landing (Portal + Interview) bevorzugt: target > source.linked_fasttrack > source
-      const fastTrackLanding = targetLanding
+      // Fast-Track-Landing (Portal + Interview) bevorzugt: target > source.linked_fasttrack.
+      // Broker-Landings (flow_type='broker') haben KEIN eigenes Portal — niemals als
+      // Fallback nehmen, sonst zeigt der Cancel-/Rebook-Link auf die Vermittler-Domain.
+      const isBrokerLp = (l: any) => l && l.flow_type === "broker";
+      let fastTrackLanding = targetLanding
         || (sourceLanding?.linked_fasttrack_landing_id ? lpMap.get(sourceLanding.linked_fasttrack_landing_id) : null)
-        || sourceLanding;
+        || (isBrokerLp(sourceLanding) ? null : sourceLanding);
+      if (isBrokerLp(fastTrackLanding)) fastTrackLanding = null;
       const landing = sourceLanding || targetLanding;
       const fastTrackDomain = fastTrackLanding?.domain || tenant.primary_domain || tenant.domain;
+
       const recruiterName = landing?.recruiter_name || tenant.name;
       const recruiterAvatar = landing?.recruiter_avatar_url || null;
       // Cancel-/Rebook-Link: immer auf portal.<fast-track-domain>, dort läuft das Buchungssystem.
