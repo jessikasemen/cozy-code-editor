@@ -31,6 +31,7 @@ const DAYS_PER_VIEW = 28;
 
 function BookingPage() {
   const { token } = Route.useParams();
+  const { rebook } = Route.useSearch();
   const { toast } = useToast();
   const qc = useQueryClient();
   const scheduleFn = useServerFn(getScheduleForApplicant);
