@@ -84,15 +84,18 @@ serve(async (req) => {
       }, 200);
     }
 
-    // Ungelesene Nachrichten zählen (vom Admin/Teamleiter an diesen Mitarbeiter)
+    // Ungelesene Nachrichten zählen (nur informativ für Template-Variable).
+    // Reminder darf jetzt auch OHNE ungelesene Nachrichten rausgehen — z.B.
+    // wenn ein Mitarbeiter länger nicht mehr im Portal war und der Teamleiter
+    // ihn anschreiben will.
     const { count } = await admin
       .from("chat_messages")
       .select("id", { count: "exact", head: true })
       .eq("receiver_id", userId)
       .eq("read", false);
-    if (!count || count === 0) {
-      return json({ error: "Keine ungelesenen Nachrichten – Erinnerung nicht nötig.", skipped: true }, 200);
-    }
+    const unreadCount = count ?? 0;
+
+
 
 
     const { data: tenant } = await admin
@@ -118,7 +121,7 @@ serve(async (req) => {
 
     // Template aus Tenant (oder Default), Platzhalter ersetzen
     const DEFAULT_SUBJECT = "Neue Nachricht von {{team_leader_name}} – {{tenant_name}}";
-    const DEFAULT_BODY = `Hi {{first_name}},\n\ndu hast {{unread_count}} ungelesene Nachricht(en) von {{team_leader_name}} im Mitarbeiter-Portal.\n\nBitte logge dich kurz ein und antworte – so geht's für dich am schnellsten weiter.\n\n{{cta:Jetzt einloggen|{{login_link}}}}\n\nFalls der Button nicht funktioniert: {{login_link}}`;
+    const DEFAULT_BODY = `Hi {{first_name}},\n\nkurze Erinnerung von {{team_leader_name}} aus dem Mitarbeiter-Portal.\n\nBitte logge dich kurz ein – so bleibst du auf dem Laufenden und wir können dir schnell weiterhelfen.\n\n{{cta:Jetzt einloggen|{{login_link}}}}\n\nFalls der Button nicht funktioniert: {{login_link}}`;
     const tplSubject = (tenant.reminder_chat_subject || DEFAULT_SUBJECT);
     const tplBody = (tenant.reminder_chat_body || DEFAULT_BODY);
 
@@ -130,8 +133,9 @@ serve(async (req) => {
       login_link: loginUrl,
       portal_link: loginUrl,
       email: to,
-      unread_count: String(count),
+      unread_count: String(unreadCount),
     };
+
     const replaceVars = (s: string) =>
       s.replace(/\{\{(\w+)\}\}/g, (_m, k) => (vars[k] !== undefined ? vars[k] : `{{${k}}}`));
     const subject = replaceVars(tplSubject);
@@ -186,9 +190,10 @@ ${sig}
         rendered_subject: subject,
         rendered_html: html,
         sender_email: senderEmail,
-        metadata: { message_id: info?.messageId ?? null, unread_count: count, user_id: userId, tenant_id: tenant.id },
+        metadata: { message_id: info?.messageId ?? null, unread_count: unreadCount, user_id: userId, tenant_id: tenant.id },
       });
-      return json({ success: true, unread: count }, 200);
+      return json({ success: true, unread: unreadCount }, 200);
+
     } catch (sendErr: any) {
       const reason = String(sendErr?.message ?? sendErr);
       await admin.from("email_send_log").insert({
