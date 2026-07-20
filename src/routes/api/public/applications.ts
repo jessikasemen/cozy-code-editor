@@ -663,12 +663,14 @@ export const Route = createFileRoute("/api/public/applications")({
                 registrationLink: confirmationActionLink,
                 tenantId: resolvedTenantId,
                 templateName: "application_received",
+                applicationId: appId,
                 placeholders: {
                   partner_name: partner?.name ?? broker_block?.partner_name ?? "",
                   calendly_link: confirmationBookingLink ?? "",
                   booking_link: confirmationBookingLink ?? "",
                 },
               });
+
               if (mailErr || mailData?.error) {
                 const reason = await mailErrorMessage(mailErr, mailData, mailResponse);
                 email_status = { attempted: true, status: "failed", template: "application_received", reason };
