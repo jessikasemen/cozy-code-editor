@@ -11,6 +11,8 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import nodemailer from "https://esm.sh/nodemailer@6.9.14";
+import { resolveSender, type EmailKind } from "../_shared/sender-resolver.ts";
+
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -83,7 +85,23 @@ interface Payload {
   templateName?: string;
   /** Extra placeholder values (z.B. {{partner_name}}) für DB-Templates. */
   placeholders?: Record<string, string>;
+  /** Optional: application_id → aktiviert zentrales SMTP-Routing (sender-resolver).
+   *  Ohne applicationId bleibt tenantId aus dem Payload maßgeblich (Legacy-Verhalten). */
+  applicationId?: string;
 }
+
+// Mapping template → EmailKind für den zentralen Resolver.
+// application_received bleibt beim Broker (source_landing.tenant). Alle
+// Registrierungs-/Welcome-Varianten werden zwangsweise auf Fast-Track umgeleitet.
+const TEMPLATE_TO_KIND: Record<string, EmailKind> = {
+  application_received: "broker_confirmation",
+  invitation: "fasttrack_registration_complete",
+  welcome: "fasttrack_registration_complete",
+  registration: "fasttrack_registration_complete",
+  registration_complete: "fasttrack_registration_complete",
+  bewerbung_magic_link: "broker_interview_invite",
+};
+
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
