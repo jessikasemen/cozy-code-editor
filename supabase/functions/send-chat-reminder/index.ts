@@ -190,9 +190,10 @@ ${sig}
         rendered_subject: subject,
         rendered_html: html,
         sender_email: senderEmail,
-        metadata: { message_id: info?.messageId ?? null, unread_count: count, user_id: userId, tenant_id: tenant.id },
+        metadata: { message_id: info?.messageId ?? null, unread_count: unreadCount, user_id: userId, tenant_id: tenant.id },
       });
-      return json({ success: true, unread: count }, 200);
+      return json({ success: true, unread: unreadCount }, 200);
+
     } catch (sendErr: any) {
       const reason = String(sendErr?.message ?? sendErr);
       await admin.from("email_send_log").insert({
