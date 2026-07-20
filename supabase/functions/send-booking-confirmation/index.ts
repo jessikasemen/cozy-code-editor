@@ -11,6 +11,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import nodemailer from "https://esm.sh/nodemailer@6.9.14";
 import { renderEmail } from "../_shared/email-wrapper.ts";
+import { resolveSender } from "../_shared/sender-resolver.ts";
 
 const FUNCTION_VERSION = "2026-07-18-booking-confirmation-v3-lookback72h";
 const REMINDER_KIND = "booking_confirmation";
@@ -129,7 +130,7 @@ async function logEmailSend(
       rendered_subject: subject,
       rendered_html: html,
       sender_email: tenant.sender_email ?? tenant.smtp_username,
-      metadata: { appointment_id: appt.id, application_id: app.id, source: "send-booking-confirmation" },
+      metadata: { appointment_id: appt.id, application_id: app.id, source: "send-booking-confirmation", sender_kind: "broker_booking_confirmation", resolved_tenant_id: tenant.id },
     });
   } catch (e) {
     console.warn("email_send_log insert skipped:", e);
@@ -192,12 +193,6 @@ serve(async (req) => {
       .in("id", todo.map((t: any) => t.application_id));
     const appMap = new Map<string, any>((apps ?? []).map((a: any) => [a.id, a]));
 
-    const tenantIds = Array.from(new Set(todo.map((a: any) => a.tenant_id).filter(Boolean)));
-    const { data: tList } = await admin.from("tenants")
-      .select("id,name,domain,primary_domain,logo_url,primary_color,sender_email,sender_name,reply_to_email,smtp_host,smtp_port,smtp_username,smtp_password,email_signature,emails_paused,booking_confirmation_subject,booking_confirmation_body,booking_confirmation_button")
-      .in("id", tenantIds);
-    const tenantMap = new Map<string, TenantRow>((tList ?? []).map((t: any) => [t.id, t]));
-
     const lps = Array.from(new Set([
       ...todo.map((a: any) => appMap.get(a.application_id)?.target_landing_id).filter(Boolean),
       ...todo.map((a: any) => appMap.get(a.application_id)?.source_landing_id).filter(Boolean),
@@ -223,9 +218,16 @@ serve(async (req) => {
     for (const appt of todo as any[]) {
       const app = appMap.get(appt.application_id);
       if (!app?.email) { skipped++; results.push({ id: appt.id, reason: "no_email" }); continue; }
-      const tenant = tenantMap.get(appt.tenant_id);
-      if (!tenant) { skipped++; results.push({ id: appt.id, reason: "no_tenant" }); continue; }
-      if (tenant.emails_paused) { skipped++; results.push({ id: appt.id, reason: "tenant_paused" }); continue; }
+      const resolved = await resolveSender(admin, app.id, "broker_booking_confirmation");
+      const tenant = resolved.tenant as TenantRow | null;
+      if (!tenant) {
+        skipped++; results.push({ id: appt.id, reason: resolved.reason || "routing_failed", sender_kind: resolved.kind });
+        await admin.from("application_reminder_log").upsert({
+          application_id: app.id, tenant_id: app.tenant_id ?? appt.tenant_id ?? null, reminder_kind: REMINDER_KIND,
+          recipient_email: app.email, status: "skipped", error: `routing_${resolved.reason || "failed"}`,
+        }, { onConflict: "application_id,reminder_kind" });
+        continue;
+      }
       if (!hasValidSmtp(tenant)) { skipped++; results.push({ id: appt.id, reason: "no_smtp" }); continue; }
 
       const sourceLanding = app.source_landing_id ? lpMap.get(app.source_landing_id) : null;
