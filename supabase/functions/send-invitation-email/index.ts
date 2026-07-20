@@ -61,6 +61,11 @@ const LEGACY_WELCOME_MARKERS = [
   "dein Zugang für {{tenant_name}} ist bereit",
   "dein Zugang für",
   "Bitte registriere dich im Mitarbeiterportal und schließe anschließend dein Profil ab",
+  "Willkommen im Team",
+  "Ihre Registrierung",
+  "Jetzt registrieren",
+  "Mitarbeiter-Portal",
+  "Mitarbeiterportal",
 ];
 
 interface Payload {
@@ -178,6 +183,8 @@ serve(async (req) => {
       dbSubject = tenant.application_received_subject || null;
       dbBody = tenant.application_received_body || null;
       dbButton = tenant.application_received_button_label || null;
+      if (dbBody && isLegacyWelcomeTemplate(dbBody)) dbBody = null;
+      if (dbSubject && isLegacyWelcomeTemplate(dbSubject)) dbSubject = null;
     }
 
     const isDefaultInvitation = !templateNameOverride || templateNameOverride === "invitation" || templateNameOverride === "ai_acceptance_invitation";
