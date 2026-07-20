@@ -136,6 +136,13 @@ function BookingPage() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-muted/30 py-10 px-4">
       <div className="max-w-3xl mx-auto">
+        {rebook && (
+          <div className="mb-4 rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+            <strong className="block mb-1">Ihr letzter Termin wurde nicht wahrgenommen.</strong>
+            Kein Problem – wählen Sie hier bitte einen neuen Zeitpunkt für Ihr Bewerbungsgespräch.
+            Ihr bisheriger Termin wird beim Bestätigen automatisch storniert.
+          </div>
+        )}
         <Card>
           <CardHeader>
             <CardTitle>
