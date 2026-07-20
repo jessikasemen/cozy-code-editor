@@ -280,14 +280,28 @@ export async function sendRegistrationInviteAfterAiAccept(app: ApplicationRow, r
     return { sent: false, error: tokenErr?.message ?? "token_failed" };
   }
 
-  const { data: tenant } = await supabaseAdmin
-    .from("tenants")
-    .select("domain, primary_domain")
-    .eq("id", app.tenant_id)
-    .maybeSingle();
-  const activeDomain = (tenant as any)?.primary_domain || (tenant as any)?.domain || null;
+  // Portal-Domain zuerst aus Fast-Track-Zielseite (target_landing_id) auflösen —
+  // Vermittlungs-Tenants haben oft keine eigene portal.-Subdomain.
+  let portalDomain: string | null = null;
+  const targetLandingId = (app as any).target_landing_id ?? null;
+  if (targetLandingId) {
+    const { data: lp } = await supabaseAdmin
+      .from("landing_pages")
+      .select("domain")
+      .eq("id", targetLandingId)
+      .maybeSingle();
+    portalDomain = (lp as any)?.domain ?? null;
+  }
+  if (!portalDomain) {
+    const { data: tenant } = await supabaseAdmin
+      .from("tenants")
+      .select("domain, primary_domain")
+      .eq("id", app.tenant_id)
+      .maybeSingle();
+    portalDomain = (tenant as any)?.primary_domain || (tenant as any)?.domain || null;
+  }
   const fallbackOrigin = new URL(request.url).origin.replace(/\/+$/, "");
-  const base = activeDomain ? `https://portal.${activeDomain}` : fallbackOrigin;
+  const base = portalDomain ? `https://portal.${portalDomain}` : fallbackOrigin;
   // ?ref=<application_id> hängt die Vermittlungs-Bewerbung an den Registrierungs-Link,
   // damit später eindeutig zurück-verknüpft werden kann (linked_application_id / Funnel).
   const registrationLink = `${base}/register?token=${encodeURIComponent(tokenRow.token)}&ref=${encodeURIComponent(app.id)}`;

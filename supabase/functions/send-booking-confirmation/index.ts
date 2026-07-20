@@ -228,6 +228,10 @@ serve(async (req) => {
         appointment_time: starts.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }),
         duration_minutes: String(duration),
         cancel_url: cancelUrl,
+        // Portal-URL: nutzt die Fast-Track-Landing-Domain (target_landing_id),
+        // fällt sonst zurück auf Tenant-Primärdomain. Vermittlungsseiten
+        // haben oft keine eigene portal.-Subdomain — deshalb Ziel-Landing bevorzugen.
+        portal_url: domain ? `https://portal.${domain}` : "",
         button_label: tenant.booking_confirmation_button || DEFAULT_BUTTON,
       };
 
