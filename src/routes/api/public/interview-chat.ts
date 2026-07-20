@@ -561,9 +561,10 @@ export const Route = createFileRoute("/api/public/interview-chat")({
             } as any)
             .eq("id", applicationId);
           if (updErr) return json({ error: updErr.message }, 500);
-          const inviteMail = result.recommendation === "invite"
-            ? await sendRegistrationInviteAfterAiAccept(app as ApplicationRow, request)
-            : { sent: false, skipped: true };
+          // Invite-Mail NICHT automatisch senden – erst nach echtem
+          // Recruiter-Gespräch + manueller Zusage im Admin-Portal
+          // (advanceApplicationStage → vermittlung_zusage / fasttrack_angenommen).
+          const inviteMail = { sent: false, skipped: true, reason: "manual_recruiter_decision_required" };
           return json({ ok: true, ended: true, timedOut, application_status: toApplicationStatus(result.recommendation), invite_mail: inviteMail, ...result });
         }
 
@@ -614,8 +615,9 @@ export const Route = createFileRoute("/api/public/interview-chat")({
         const { error: updErr } = await supabaseAdmin.from("applications").update(updates).eq("id", applicationId);
         if (updErr) return json({ error: updErr.message }, 500);
 
+        // Kein Auto-Invite: nur Recruiter darf Zusage/Willkommen auslösen.
         const inviteMail = ended && updates.interview_recommendation === "invite"
-          ? await sendRegistrationInviteAfterAiAccept(app as ApplicationRow, request)
+          ? { sent: false, skipped: true, reason: "manual_recruiter_decision_required" }
           : undefined;
 
         return json({ ok: true, reply, ended, history, application_status: ended ? updates.status : undefined, interview_started_at: updates.interview_started_at ?? app.interview_started_at ?? null, invite_mail: inviteMail });
