@@ -111,10 +111,17 @@ export const blockRecipient = createServerFn({ method: "POST" })
     if (e1) throw new Error(e1.message);
 
     // 2. Globale suppressed_emails (blockt u.a. Neu-Registrierung + Chat-Reminder)
-    await sb.from("suppressed_emails").upsert(
-      { tenant_id: null, email: key, reason: `manual:${reason}`, source: "admin" },
-      { onConflict: "tenant_id,email", ignoreDuplicates: false },
-    );
+    const { data: existingSup } = await sb
+      .from("suppressed_emails").select("id").is("tenant_id", null).ilike("email", key).maybeSingle();
+    if (existingSup) {
+      await sb.from("suppressed_emails")
+        .update({ reason: `manual:${reason}`, source: "admin" })
+        .eq("id", existingSup.id);
+    } else {
+      await sb.from("suppressed_emails")
+        .insert({ tenant_id: null, email: key, reason: `manual:${reason}`, source: "admin" });
+    }
+
 
     // 3. Wenn ein Account mit dieser Adresse existiert → sperren (Login unmöglich)
     try {
