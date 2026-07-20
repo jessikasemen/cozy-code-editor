@@ -299,16 +299,26 @@ export const Route = createFileRoute("/api/public/applications")({
         // (window.PORTAL_URL = ""). Ohne portal_url baut die Route keine
         // Buchungs-URL → Bewerber sehen kein "Jetzt Termin buchen"-Button.
         // Fallback: aus tenant.primary_domain ableiten (`https://portal.<domain>`).
-        if ((!d.portal_url || !d.portal_url.trim()) && resolvedTenantId) {
-          const { data: tRow } = await supabaseAdmin
-            .from("tenants")
-            .select("primary_domain, domain")
-            .eq("id", resolvedTenantId)
-            .maybeSingle();
-          const fallback = portalBaseFromTenant(tRow);
+        if ((!d.portal_url || !d.portal_url.trim())) {
+          // Bevorzugt: Fast-Track-Landing-Domain (dort läuft das Portal/Buchungssystem).
+          // Fallback: tenant.primary_domain (nur sinnvoll für classic/fast, nicht broker,
+          // sonst zeigt der Link auf die Vermittler-Domain statt aufs Fast-Track-Portal).
+          let fallback: string | null = null;
+          const fastTrackId = landingPage?.linked_fasttrack_landing_id ?? d.target_landing_id ?? null;
+          if (fastTrackId) {
+            const { data: ftLp } = await supabaseAdmin
+              .from("landing_pages").select("domain").eq("id", fastTrackId).maybeSingle();
+            const dom = String((ftLp as any)?.domain ?? "").trim().replace(/^portal\./, "");
+            if (dom) fallback = `https://portal.${dom}`;
+          }
+          if (!fallback && resolvedTenantId && d.flow_type !== "broker") {
+            const { data: tRow } = await supabaseAdmin
+              .from("tenants").select("primary_domain, domain").eq("id", resolvedTenantId).maybeSingle();
+            fallback = portalBaseFromTenant(tRow);
+          }
           if (fallback) {
             (d as any).portal_url = fallback;
-            console.log("[applications] portal_url_fallback", { requestId, portal_url: fallback });
+            console.log("[applications] portal_url_fallback", { requestId, portal_url: fallback, source: fastTrackId ? "fasttrack_landing" : "tenant" });
           }
         }
         let ownBookingUrl: string | null = null;
