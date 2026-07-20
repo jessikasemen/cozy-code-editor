@@ -650,11 +650,12 @@ serve(async (req) => {
           continue;
         }
         const activeDomain = tenant.primary_domain || tenant.domain;
-        if (!activeDomain) {
+        const registrationHost = portalHost(activeDomain);
+        if (!registrationHost) {
           skipped++; results.push({ app: app.id, kind, status: "skipped", reason: "no_tenant_domain" });
           continue;
         }
-        portalLink = `https://portal.${activeDomain}/register?token=${encodeURIComponent(inviteToken)}&ref=${encodeURIComponent(app.id)}`;
+        portalLink = `https://${registrationHost}/register?token=${encodeURIComponent(inviteToken)}&ref=${encodeURIComponent(app.id)}`;
       } else if (useInternalBooking) {
         // Neuer/verpasster Termin → Bewerber landet im Fast-Track-Portal-Kalender.
         rebookLink = `https://${fastTrackHost}/termin/buchen/${encodeURIComponent(app.magic_token)}?rebook=1`;
