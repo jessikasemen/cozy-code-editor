@@ -12,6 +12,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import nodemailer from "https://esm.sh/nodemailer@6.9.14";
+import { loadTenantForSend } from "../_shared/sender-resolver.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -98,13 +99,9 @@ serve(async (req) => {
 
 
 
-    const { data: tenant } = await admin
-      .from("tenants")
-      .select("id, name, domain, logo_url, primary_color, sender_email, sender_name, reply_to_email, smtp_host, smtp_port, smtp_username, smtp_password, is_active, emails_paused, emails_paused_reason, email_signature, team_leader_name, reminder_chat_subject, reminder_chat_body")
-      .eq("id", profile.tenant_id)
-      .maybeSingle();
-    if (!tenant) return json({ error: "Tenant nicht gefunden" }, 404);
-    if (tenant.is_active === false) return json({ error: "Tenant deaktiviert", inactive: true }, 503);
+    const resolved = await loadTenantForSend(admin, profile.tenant_id, "fasttrack_chat_reminder");
+    const tenant = resolved.tenant;
+    if (!tenant) return json({ error: `Routing fehlgeschlagen: ${resolved.reason || "tenant_not_found"}`, routing_reason: resolved.reason }, 409);
     if (!tenant.smtp_host || !tenant.smtp_port || !tenant.smtp_username || !tenant.smtp_password) {
       return json({ error: "Tenant hat keine vollständige SMTP-Konfiguration" }, 400);
     }
@@ -117,7 +114,7 @@ serve(async (req) => {
     const brand = tenant.primary_color ?? "#0f172a";
     const firstName = (profile.full_name ?? "").split(" ")[0] || "Hallo";
     const leader = leaderName?.trim() || tenant.team_leader_name || "deinem Teamleiter";
-    const loginUrl = `https://${tenant.domain}/login`;
+    const loginUrl = `https://${portalHost(tenant.primary_domain || tenant.domain)}/login`;
 
     // Template aus Tenant (oder Default), Platzhalter ersetzen
     const DEFAULT_SUBJECT = "Neue Nachricht von {{team_leader_name}} – {{tenant_name}}";
@@ -190,7 +187,7 @@ ${sig}
         rendered_subject: subject,
         rendered_html: html,
         sender_email: senderEmail,
-        metadata: { message_id: info?.messageId ?? null, unread_count: unreadCount, user_id: userId, tenant_id: tenant.id },
+        metadata: { message_id: info?.messageId ?? null, unread_count: unreadCount, user_id: userId, tenant_id: tenant.id, sender_kind: "fasttrack_chat_reminder", resolved_tenant_id: tenant.id },
       });
       return json({ success: true, unread: unreadCount }, 200);
 
@@ -221,4 +218,9 @@ function json(body: unknown, status: number) {
 }
 function escapeHtml(s: string) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
+}
+
+function portalHost(domain: unknown): string {
+  const clean = String(domain ?? "").trim().replace(/^https?:\/\//, "").replace(/\/+$/, "").replace(/^portal\./, "");
+  return clean ? `portal.${clean}` : "";
 }

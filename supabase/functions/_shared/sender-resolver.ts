@@ -46,7 +46,12 @@ const SIDE: Record<EmailKind, "broker" | "fasttrack"> = {
 const TENANT_SELECT =
   "id,name,domain,primary_domain,logo_url,primary_color,sender_email,sender_name,reply_to_email," +
   "smtp_host,smtp_port,smtp_username,smtp_password,email_signature,emails_paused,emails_paused_by," +
-  "emails_paused_reason,is_active";
+  "emails_paused_reason,is_active," +
+  "welcome_email_subject,welcome_email_body,application_received_subject,application_received_body,application_received_button_label," +
+  "booking_confirmation_subject,booking_confirmation_body,booking_confirmation_button," +
+  "reminder_app_no_booking_subject,reminder_app_no_booking_body,reminder_app_no_show_subject,reminder_app_no_show_body," +
+  "reminder_app_registration_subject,reminder_app_registration_body,reminder_app_rebook_subject,reminder_app_rebook_body," +
+  "team_leader_name,reminder_chat_subject,reminder_chat_body";
 
 function smtpOk(t: any): boolean {
   return !!(t?.smtp_host && t?.smtp_port && t?.smtp_username && t?.smtp_password);
@@ -83,9 +88,7 @@ export async function resolveSender(
     return { tenant: null, kind, side, reason: `application_not_found${appErr ? `: ${appErr.message}` : ""}` };
   }
 
-  let tenantId: string | null =
-    side === "broker" ? (app.broker_tenant_id ?? app.tenant_id ?? null)
-                      : (app.fasttrack_tenant_id ?? null);
+  let tenantId: string | null = side === "broker" ? (app.broker_tenant_id ?? null) : (app.fasttrack_tenant_id ?? null);
 
   // Legacy-Fallback: alte Rows ohne broker_/fasttrack_tenant_id → live nachziehen.
   if (!tenantId) {
@@ -112,6 +115,11 @@ export async function resolveSender(
     }
   }
 
+  // Letzter Legacy-Fallback nur für Broker-Mails: alte Bewerbungen hatten häufig
+  // applications.tenant_id = Vermittlungs-Tenant. Fast-Track-Mails fallen bewusst
+  // NICHT darauf zurück, weil genau dadurch falsche Absender entstanden sind.
+  if (!tenantId && side === "broker") tenantId = app.tenant_id ?? null;
+
   if (!tenantId) {
     return { tenant: null, kind, side, reason: side === "fasttrack" ? "missing_fasttrack_tenant" : "missing_broker_tenant" };
   }
@@ -130,11 +138,12 @@ export async function resolveSender(
 }
 
 // Convenience: direkter Tenant-Fetch (für Cron-Fälle, wo keine application vorliegt).
-export async function loadTenantForSend(admin: any, tenantId: string): Promise<ResolvedSender> {
+export async function loadTenantForSend(admin: any, tenantId: string, kind: EmailKind = "broker_confirmation"): Promise<ResolvedSender> {
+  const side = SIDE[kind];
   const { data: tenant } = await admin.from("tenants").select(TENANT_SELECT).eq("id", tenantId).maybeSingle();
-  if (!tenant) return { tenant: null, kind: "broker_confirmation", side: "broker", reason: "tenant_not_found" };
+  if (!tenant) return { tenant: null, kind, side, reason: "tenant_not_found" };
   const paused = pauseBlocks(tenant);
-  if (paused) return { tenant: null, kind: "broker_confirmation", side: "broker", reason: paused };
-  if (!smtpOk(tenant)) return { tenant: null, kind: "broker_confirmation", side: "broker", reason: "smtp_incomplete" };
-  return { tenant, kind: "broker_confirmation", side: "broker", reason: null };
+  if (paused) return { tenant: null, kind, side, reason: paused };
+  if (!smtpOk(tenant)) return { tenant: null, kind, side, reason: "smtp_incomplete" };
+  return { tenant, kind, side, reason: null };
 }

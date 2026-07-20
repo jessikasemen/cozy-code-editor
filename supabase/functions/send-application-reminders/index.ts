@@ -10,6 +10,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import nodemailer from "https://esm.sh/nodemailer@6.9.14";
+import { resolveSender, type EmailKind } from "../_shared/sender-resolver.ts";
 
 const FUNCTION_VERSION = "2026-07-15-rebook-after-cancel-v9-smtp-rate-limit-safe";
 
@@ -338,7 +339,7 @@ serve(async (req) => {
     const since = new Date(now - 10 * 86400_000).toISOString();
     const { data: apps, error: aErr } = await admin
       .from("applications")
-      .select("id,tenant_id,source_slug,source_landing_id,target_landing_id,full_name,email,status,created_at,updated_at,booking_status,scheduled_at,interview_started_at,interview_completed_at,flow_type,magic_token")
+      .select("id,tenant_id,broker_tenant_id,fasttrack_tenant_id,source_slug,source_landing_id,target_landing_id,full_name,email,status,created_at,updated_at,booking_status,scheduled_at,interview_started_at,interview_completed_at,flow_type,magic_token")
       .gte("created_at", since);
     if (aErr) return json({ error: aErr.message }, 500);
 
@@ -392,7 +393,7 @@ serve(async (req) => {
     }
 
     // Tenant-Fallback (nur relevant für Calendly-basierte Legacy-Flows).
-    const tenantIdsForFallback = Array.from(new Set(apps.map((a: any) => a.tenant_id).filter(Boolean)));
+    const tenantIdsForFallback = Array.from(new Set(apps.flatMap((a: any) => [a.tenant_id, a.broker_tenant_id, a.fasttrack_tenant_id]).filter(Boolean)));
     const tenantLandingFallback = new Map<string, LandingRow>();
     let tenantLandingRawCount = 0;
     if (tenantIdsForFallback.length) {
@@ -456,7 +457,7 @@ serve(async (req) => {
       }
       // Registrierte Bewerber = existiert Profil mit gleicher E-Mail im gleichen Tenant
       const emails = Array.from(new Set(acceptedApps.map((a) => a.email.toLowerCase().trim())));
-      const tenantIds = Array.from(new Set(acceptedApps.map((a) => a.tenant_id)));
+      const tenantIds = Array.from(new Set(acceptedApps.map((a) => a.fasttrack_tenant_id ?? a.tenant_id).filter(Boolean)));
       if (emails.length && tenantIds.length) {
         const { data: profs } = await admin
           .from("profiles")
@@ -492,7 +493,8 @@ serve(async (req) => {
       // 2) Registration Pending (Zusage erteilt, aber nicht registriert)
       const invite = tokensByAppId.get(a.id);
       if (invite) {
-        const emailKey = `${a.tenant_id}|${String(a.email).toLowerCase().trim()}`;
+        const registrationTenantId = a.fasttrack_tenant_id ?? a.tenant_id;
+        const emailKey = `${registrationTenantId}|${String(a.email).toLowerCase().trim()}`;
         const isRegistered = registeredEmails.has(emailKey);
         if (!isRegistered) {
           const inviteAgeMin = (now - new Date(invite.created_at).getTime()) / 60_000;
@@ -583,23 +585,36 @@ serve(async (req) => {
     const jitter = () => new Promise(res => setTimeout(res, JITTER_MIN_MS + Math.random() * (JITTER_MAX_MS - JITTER_MIN_MS)));
 
     for (const { app, kind, inviteToken } of todo) {
-      const tenant = tenants.get(app.tenant_id);
-      if (!tenant) { skipped++; results.push({ app: app.id, kind, status: "skipped", reason: "tenant_missing" }); continue; }
+      const isRegistration = kind === "registration_pending_24h" || kind === "registration_pending_72h";
+      const isNoShow = kind === "no_show_24h";
+      const isRebook = kind === "rebook_after_cancel_24h" || kind === "rebook_after_cancel_72h";
+      const emailKind: EmailKind = isRegistration
+        ? "fasttrack_registration_complete"
+        : isNoShow
+          ? "broker_no_show"
+          : "broker_no_booking";
+      const resolved = await resolveSender(admin, app.id, emailKind);
+      const tenant = resolved.tenant as TenantRow | null;
+      if (!tenant) {
+        skipped++; results.push({ app: app.id, kind, status: "skipped", reason: resolved.reason || "routing_failed", sender_kind: resolved.kind });
+        if (!dryRun) await admin.from("application_reminder_log").upsert({
+          application_id: app.id, tenant_id: app.tenant_id ?? null, reminder_kind: kind,
+          recipient_email: app.email, status: "skipped", error: `routing_${resolved.reason || "failed"}`,
+          sent_at: new Date().toISOString(),
+        }, { onConflict: "application_id,reminder_kind" });
+        continue;
+      }
       if (tenant.emails_paused || pausedInThisRun.has(tenant.id)) { skipped++; results.push({ app: app.id, kind, status: "skipped", reason: "tenant_paused" }); continue; }
       if (rateLimitedInThisRun.has(tenant.id)) { skipped++; results.push({ app: app.id, kind, status: "skipped", reason: "tenant_rate_limited_retry_later" }); continue; }
       if (!hasValidSmtp(tenant)) { skipped++; results.push({ app: app.id, kind, status: "skipped", reason: "smtp_incomplete" }); continue; }
 
-      // Rate-Limits
+      // Rate-Limits pro tatsächlich aufgelöstem Absender-Tenant.
       const runCount = runSentByTenant.get(tenant.id) ?? 0;
       if (runCount >= MAX_PER_RUN_PER_TENANT) { skipped++; results.push({ app: app.id, kind, status: "skipped", reason: "tenant_run_cap" }); continue; }
       const total1h = (sent1hByTenant.get(tenant.id) ?? 0) + runCount;
       if (total1h >= MAX_PER_1H_PER_TENANT) { skipped++; results.push({ app: app.id, kind, status: "skipped", reason: "tenant_1h_cap", limit: MAX_PER_1H_PER_TENANT }); continue; }
       const total12h = (sent12hByTenant.get(tenant.id) ?? 0) + runCount;
       if (total12h >= MAX_PER_12H_PER_TENANT) { skipped++; results.push({ app: app.id, kind, status: "skipped", reason: "tenant_12h_cap" }); continue; }
-
-      const isRegistration = kind === "registration_pending_24h" || kind === "registration_pending_72h";
-      const isNoShow = kind === "no_show_24h";
-      const isRebook = kind === "rebook_after_cancel_24h" || kind === "rebook_after_cancel_72h";
 
       const sourceLanding = app.source_landing_id ? landingMap.get(app.source_landing_id) : null;
       const targetLanding = app.target_landing_id ? landingMap.get(app.target_landing_id) : null;
@@ -616,7 +631,7 @@ serve(async (req) => {
               : null)
         || targetLanding
         || (isInternalBooking(landing) ? landing : null);
-      const fastTrackDomain = String(fastTrackLanding?.domain || tenant.primary_domain || tenant.domain || "").trim();
+      const fastTrackDomain = String(fastTrackLanding?.domain || (isRegistration ? (tenant.primary_domain || tenant.domain) : "") || "").trim();
       const fastTrackHost = portalHost(fastTrackDomain);
 
       // Internes Buchungssystem? → Rebook-Link auf portal.<fast-track-domain>/termin/buchen/<magic_token>
@@ -635,11 +650,12 @@ serve(async (req) => {
           continue;
         }
         const activeDomain = tenant.primary_domain || tenant.domain;
-        if (!activeDomain) {
+        const registrationHost = portalHost(activeDomain);
+        if (!registrationHost) {
           skipped++; results.push({ app: app.id, kind, status: "skipped", reason: "no_tenant_domain" });
           continue;
         }
-        portalLink = `https://portal.${activeDomain}/register?token=${encodeURIComponent(inviteToken)}&ref=${encodeURIComponent(app.id)}`;
+        portalLink = `https://${registrationHost}/register?token=${encodeURIComponent(inviteToken)}&ref=${encodeURIComponent(app.id)}`;
       } else if (useInternalBooking) {
         // Neuer/verpasster Termin → Bewerber landet im Fast-Track-Portal-Kalender.
         rebookLink = `https://${fastTrackHost}/termin/buchen/${encodeURIComponent(app.magic_token)}?rebook=1`;
@@ -700,8 +716,8 @@ serve(async (req) => {
 
       if (dryRun) { sent++; results.push({ app: app.id, kind, status: "would_send", to: app.email }); continue; }
 
-      const templateName = `vermittlung_${kind}`; // vermittlung_no_booking_24h etc.
-      const messageId = `${kind}-${app.id}-${Date.now()}@vermittlung`;
+      const templateName = `${isRegistration ? "fasttrack" : "vermittlung"}_${kind}`;
+      const messageId = `${kind}-${app.id}-${Date.now()}@${isRegistration ? "fasttrack" : "vermittlung"}`;
 
       try {
         await sendMail(tenant, app.email, subject, html);
@@ -719,7 +735,7 @@ serve(async (req) => {
             template_name: templateName, recipient_email: app.email,
             status: "sent", rendered_subject: subject, rendered_html: html,
             sender_email: tenant.sender_email ?? tenant.smtp_username,
-            metadata: { application_id: app.id, kind, source: "send-application-reminders" },
+            metadata: { application_id: app.id, kind, source: "send-application-reminders", sender_kind: emailKind, resolved_tenant_id: tenant.id },
           } as any);
         } catch { /* non-critical */ }
         sent++; results.push({ app: app.id, kind, status: "sent" });
@@ -742,7 +758,7 @@ serve(async (req) => {
               status: "pending", error_message: `SMTP-Stundenlimit erreicht, wird später erneut versucht: ${errMsg}`,
               rendered_subject: subject, rendered_html: html,
               sender_email: tenant.sender_email ?? tenant.smtp_username,
-              metadata: { application_id: app.id, kind, source: "send-application-reminders", retry_reason: "smtp_hourly_rate_limit" },
+              metadata: { application_id: app.id, kind, source: "send-application-reminders", retry_reason: "smtp_hourly_rate_limit", sender_kind: emailKind, resolved_tenant_id: tenant.id },
             } as any);
           } catch { /* non-critical */ }
           skipped++; results.push({ app: app.id, kind, status: "skipped", reason: "smtp_rate_limited_retry_later", detail: errMsg });
@@ -761,7 +777,7 @@ serve(async (req) => {
             status: "failed", error_message: errMsg,
             rendered_subject: subject, rendered_html: html,
             sender_email: tenant.sender_email ?? tenant.smtp_username,
-            metadata: { application_id: app.id, kind, source: "send-application-reminders" },
+            metadata: { application_id: app.id, kind, source: "send-application-reminders", sender_kind: emailKind, resolved_tenant_id: tenant.id },
           } as any);
         } catch { /* non-critical */ }
         failed++; results.push({ app: app.id, kind, status: "failed", reason: errMsg });
