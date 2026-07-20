@@ -1,43 +1,36 @@
-## Ziel
+## Problem
 
-Einmalig verifizieren, dass die 9 wichtigsten Mail-Flows die richtigen Empfänger triggern. Kein neuer Code, kein Deploy, kein Dashboard — du führst 3 SQL-Blöcke per Putty aus und schickst mir den Output. Ich sage dir dann pro Flow: ✅ läuft / ⚠ genau dieser Bewerber wird übersprungen, weil ….
+`git pull` auf dem Server bricht ab:
 
-## Was ich prüfe
+```
+error: Your local changes to the following files would be overwritten by merge:
+        src/routeTree.gen.ts
+Aborting
+```
 
-| Flow | Prüfung |
-|---|---|
-| Bewerbung eingegangen | Letzte 24h: Anzahl Bewerbungen vs. Anzahl `application_received`-Mails in `email_send_log` |
-| Kein Termin gebucht (24h + 72h) | Kandidaten in der Pipeline JETZT (Bewerbung >24h/>72h alt, kein `scheduled_at`, keine Reminder-Mail versendet) |
-| Terminbestätigung | Letzte 24h: Bookings vs. `booking_confirmation`-Log-Einträge |
-| Erinnerung 24h vor Termin | Termine in den nächsten 24h ohne bereits versendeten Reminder |
-| No-Show Nachfass | Termine >24h zurück, Status ≠ completed, ohne `no_show_24h`-Mail |
-| Interview-Einladung | Bewerber mit `interview_ready`-Status ohne `interview_invite_30min`-Mail |
-| Registrierung offen (24h + 72h) | Zusage erteilt, Invite-Token existiert, kein Profil registriert, kein `registration_pending`-Reminder |
-| Rebook nach Absage | Cancelled Bookings ohne `rebook_after_cancel`-Mail |
-| Willkommen (nach KYC) | KYC-verifizierte Mitarbeiter der letzten 7 Tage ohne `invitation`-Mail |
+`src/routeTree.gen.ts` wird vom TanStack Router Vite-Plugin bei jedem Dev/Build automatisch neu generiert. Auf dem Server hat ein vorheriger Build die Datei lokal verändert → Git verweigert das Update.
 
-Zusätzlich: warum die 3 Cron-Jobs `process-invite-resend-queue`, `send-application-reminders`, `send-appointment-reminders` in den letzten 24h failed sind (`return_message` aus `cron.job_run_details`).
+Die Datei ist auto-generiert, darf **nie manuell editiert** werden und wird beim nächsten Build sowieso vom Plugin überschrieben. Lokale Änderungen daran sind irrelevant und können bedenkenlos verworfen werden.
 
-## Ablauf
+## Lösung (nur Server-Kommandos, kein Code-Change nötig)
 
-1. Ich schicke dir 3 SQL-Blöcke, die du per Putty auf dem `backendserver` ausführst:
-   - **Block A** — Pipeline-Kandidaten pro Trigger (JETZT: „welche Bewerber würden in den nächsten Stunden welche Mail bekommen")
-   - **Block B** — Send-Bilanz letzte 24h (Trigger-Ereignis vs. tatsächlich versendete Mail, pro Flow)
-   - **Block C** — Cron-Fehler-Details (`return_message` der failed Runs)
-2. Du schickst mir die drei Outputs.
-3. Ich schicke dir einen kompakten Report:
-   - Pro Flow: ✅ korrekt gerouted / ⚠ Diskrepanz mit Namen der betroffenen Bewerber
-   - Ursache der Cron-Fehler + Einschätzung ob harmlos oder Bug
-   - Klare Aussage: „Ja, alles läuft" oder „Diese X Bewerber müssen manuell nachversorgt werden"
+Auf dem Frontend-Server (`/opt/apps/portal`) ausführen:
 
-## Was NICHT gemacht wird
+```bash
+cd /opt/apps/portal
+git checkout -- src/routeTree.gen.ts   # lokale Änderungen verwerfen
+git pull                                # zieht jetzt sauber
+bash scripts/deploy-backend.sh          # Backend
+sudo bash scripts/deploy.sh             # Frontend
+```
 
-- Kein neuer Code
-- Kein Deploy
-- Kein neues Admin-Panel
-- Keine Änderung am SMTP-Handling (25/Tag-Tenants bleiben wie sie sind)
-- Keine Migration
+Damit sind die zuletzt committeten Änderungen live:
+- Chat-Reminder auch ohne ungelesene Nachrichten
+- Manuelle Sperre einer E-Mail-Adresse im Panel *Gesperrte Empfänger*
+- `send-signup-confirmation` prüft beide Suppression-Tabellen
 
-## Warum das reicht
+## Damit das nicht wieder passiert (optional, 1 Code-Änderung)
 
-Der Code-Pfad ist bereits verifiziert (Migrationen durch, Tenants nicht pausiert, `application_reminder_log` zeigt frische `sent`-Einträge für alle Reminder-Kinds). Was fehlt, ist der Live-Abgleich „ist mein Tenant X gerade in einem State, wo ein Bewerber Y triggern würde". Genau das leistet der SQL-Report — einmalig, ohne Nebenwirkung.
+`src/routeTree.gen.ts` in `.gitignore` aufnehmen, damit lokale Regenerierungen auf dem Server nie mehr mit `git pull` kollidieren. Die Datei bleibt im Repo (für den initialen Checkout), aber Änderungen daran werden ignoriert.
+
+Sag mir, ob ich diesen `.gitignore`-Fix jetzt mit einbauen soll oder ob dir das reine Server-Kommando reicht.
