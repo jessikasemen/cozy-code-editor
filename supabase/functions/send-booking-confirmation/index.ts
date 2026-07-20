@@ -192,9 +192,19 @@ serve(async (req) => {
       ...todo.map((a: any) => appMap.get(a.application_id)?.source_landing_id).filter(Boolean),
     ]));
     const { data: lpList } = lps.length
-      ? await admin.from("landing_pages").select("id, domain, recruiter_name, recruiter_avatar_url").in("id", lps)
+      ? await admin.from("landing_pages").select("id, domain, recruiter_name, recruiter_avatar_url, linked_fasttrack_landing_id").in("id", lps)
       : { data: [] as any[] };
     const lpMap = new Map<string, any>((lpList ?? []).map((l: any) => [l.id, l]));
+
+    // Verlinkte Fast-Track-Landings nachziehen (Broker-Flow zeigt via linked_fasttrack_landing_id auf die Fast-Track-Landing).
+    const extraIds = Array.from(new Set(
+      Array.from(lpMap.values()).map((l: any) => l.linked_fasttrack_landing_id).filter(Boolean) as string[],
+    )).filter((id) => !lpMap.has(id));
+    if (extraIds.length) {
+      const { data: extraLps } = await admin.from("landing_pages")
+        .select("id, domain, recruiter_name, recruiter_avatar_url, linked_fasttrack_landing_id").in("id", extraIds);
+      for (const l of (extraLps ?? []) as any[]) lpMap.set(l.id, l);
+    }
 
     let sent = 0, skipped = 0, failed = 0;
     const results: any[] = [];
@@ -207,11 +217,20 @@ serve(async (req) => {
       if (tenant.emails_paused) { skipped++; results.push({ id: appt.id, reason: "tenant_paused" }); continue; }
       if (!hasValidSmtp(tenant)) { skipped++; results.push({ id: appt.id, reason: "no_smtp" }); continue; }
 
-      const landing = lpMap.get(app.target_landing_id) || lpMap.get(app.source_landing_id);
-      const domain = landing?.domain || tenant.primary_domain || tenant.domain;
+      const sourceLanding = app.source_landing_id ? lpMap.get(app.source_landing_id) : null;
+      const targetLanding = app.target_landing_id ? lpMap.get(app.target_landing_id) : null;
+      // Fast-Track-Landing (Portal + Interview) bevorzugt: target > source.linked_fasttrack > source
+      const fastTrackLanding = targetLanding
+        || (sourceLanding?.linked_fasttrack_landing_id ? lpMap.get(sourceLanding.linked_fasttrack_landing_id) : null)
+        || sourceLanding;
+      const landing = sourceLanding || targetLanding;
+      const fastTrackDomain = fastTrackLanding?.domain || tenant.primary_domain || tenant.domain;
       const recruiterName = landing?.recruiter_name || tenant.name;
       const recruiterAvatar = landing?.recruiter_avatar_url || null;
-      const cancelUrl = domain ? `https://${domain}/termin/${appt.cancel_token}` : `/termin/${appt.cancel_token}`;
+      // Cancel-/Rebook-Link: immer auf portal.<fast-track-domain>, dort läuft das Buchungssystem.
+      const cancelUrl = fastTrackDomain
+        ? `https://portal.${fastTrackDomain}/termin/${appt.cancel_token}`
+        : `/termin/${appt.cancel_token}`;
 
       const starts = new Date(appt.starts_at);
       const ends = new Date(appt.ends_at);
@@ -228,10 +247,8 @@ serve(async (req) => {
         appointment_time: starts.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }),
         duration_minutes: String(duration),
         cancel_url: cancelUrl,
-        // Portal-URL: nutzt die Fast-Track-Landing-Domain (target_landing_id),
-        // fällt sonst zurück auf Tenant-Primärdomain. Vermittlungsseiten
-        // haben oft keine eigene portal.-Subdomain — deshalb Ziel-Landing bevorzugen.
-        portal_url: domain ? `https://portal.${domain}` : "",
+        // Portal-URL: Fast-Track-Portal (portal.<fast-track-domain>), dort läuft das KI-Interview.
+        portal_url: fastTrackDomain ? `https://portal.${fastTrackDomain}` : "",
         button_label: tenant.booking_confirmation_button || DEFAULT_BUTTON,
       };
 
