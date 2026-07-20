@@ -46,6 +46,11 @@ Herzliche Grüße
 {{recruiter_name}}`;
 const DEFAULT_BUTTON = "Termin verwalten";
 
+function portalHost(domain: unknown): string {
+  const clean = String(domain ?? "").trim().replace(/^https?:\/\//, "").replace(/\/+$/, "").replace(/^portal\./, "");
+  return clean ? `portal.${clean}` : "";
+}
+
 interface TenantRow {
   id: string; name: string; domain: string | null; primary_domain: string | null;
   logo_url: string | null; primary_color: string | null;
@@ -154,12 +159,18 @@ serve(async (req) => {
     if (!appts || appts.length === 0) return json({ success: true, version: FUNCTION_VERSION, candidates: 0, sent: 0 });
 
     const appIds = Array.from(new Set(appts.map((a: any) => a.application_id)));
-    const { data: logs } = await admin.from("application_reminder_log")
-      .select("application_id").eq("reminder_kind", REMINDER_KIND).in("application_id", appIds);
-    const done = new Set((logs ?? []).map((r: any) => r.application_id));
+    const apptIds = appts.map((a: any) => a.id);
+    const { data: sentLogs } = await admin.from("email_send_log")
+      .select("metadata")
+      .eq("template_name", REMINDER_KIND)
+      .eq("status", "sent");
+    const doneAppts = new Set(
+      (sentLogs ?? [])
+        .map((r: any) => r?.metadata?.appointment_id)
+        .filter((id: string | null | undefined) => id && apptIds.includes(id)),
+    );
 
     // Retry-Cap: pro Appointment max. 3 Fails in email_send_log → dann skippen.
-    const apptIds = appts.map((a: any) => a.id);
     const { data: failLogs } = await admin.from("email_send_log")
       .select("metadata")
       .eq("template_name", REMINDER_KIND)
@@ -173,8 +184,8 @@ serve(async (req) => {
       Array.from(failCount.entries()).filter(([, n]) => n >= 3).map(([id]) => id),
     );
 
-    const todo = appts.filter((a: any) => !done.has(a.application_id) && !capped.has(a.id));
-    if (todo.length === 0) return json({ success: true, version: FUNCTION_VERSION, candidates: appts.length, sent: 0, skipped_already_sent: appts.length - capped.size, skipped_retry_cap: capped.size });
+    const todo = appts.filter((a: any) => !doneAppts.has(a.id) && !capped.has(a.id));
+    if (todo.length === 0) return json({ success: true, version: FUNCTION_VERSION, candidates: appts.length, sent: 0, skipped_already_sent: doneAppts.size, skipped_retry_cap: capped.size });
 
     const { data: apps } = await admin.from("applications")
       .select("id, email, first_name, last_name, full_name, tenant_id, target_landing_id, source_landing_id")
@@ -219,22 +230,24 @@ serve(async (req) => {
 
       const sourceLanding = app.source_landing_id ? lpMap.get(app.source_landing_id) : null;
       const targetLanding = app.target_landing_id ? lpMap.get(app.target_landing_id) : null;
-      // Fast-Track-Landing (Portal + Interview) bevorzugt: target > source.linked_fasttrack.
+      // Fast-Track-Landing (Portal + Interview) bevorzugt: aktuelle source.linked_fasttrack
+      // vor gespeicherten target_landing_id, weil Admins die Vermittlungs-Zuordnung ändern können.
       // Broker-Landings (flow_type='broker') haben KEIN eigenes Portal — niemals als
       // Fallback nehmen, sonst zeigt der Cancel-/Rebook-Link auf die Vermittler-Domain.
       const isBrokerLp = (l: any) => l && l.flow_type === "broker";
-      let fastTrackLanding = targetLanding
-        || (sourceLanding?.linked_fasttrack_landing_id ? lpMap.get(sourceLanding.linked_fasttrack_landing_id) : null)
+      let fastTrackLanding = (sourceLanding?.linked_fasttrack_landing_id ? lpMap.get(sourceLanding.linked_fasttrack_landing_id) : null)
+        || targetLanding
         || (isBrokerLp(sourceLanding) ? null : sourceLanding);
       if (isBrokerLp(fastTrackLanding)) fastTrackLanding = null;
       const landing = sourceLanding || targetLanding;
       const fastTrackDomain = fastTrackLanding?.domain || tenant.primary_domain || tenant.domain;
+      const fastTrackHost = portalHost(fastTrackDomain);
 
       const recruiterName = landing?.recruiter_name || tenant.name;
       const recruiterAvatar = landing?.recruiter_avatar_url || null;
       // Cancel-/Rebook-Link: immer auf portal.<fast-track-domain>, dort läuft das Buchungssystem.
-      const cancelUrl = fastTrackDomain
-        ? `https://portal.${fastTrackDomain}/termin/${appt.cancel_token}`
+      const cancelUrl = fastTrackHost
+        ? `https://${fastTrackHost}/termin/${appt.cancel_token}`
         : `/termin/${appt.cancel_token}`;
 
       const starts = new Date(appt.starts_at);
@@ -253,7 +266,7 @@ serve(async (req) => {
         duration_minutes: String(duration),
         cancel_url: cancelUrl,
         // Portal-URL: Fast-Track-Portal (portal.<fast-track-domain>), dort läuft das KI-Interview.
-        portal_url: fastTrackDomain ? `https://portal.${fastTrackDomain}` : "",
+        portal_url: fastTrackHost ? `https://${fastTrackHost}` : "",
         button_label: tenant.booking_confirmation_button || DEFAULT_BUTTON,
       };
 

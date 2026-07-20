@@ -55,6 +55,11 @@ function portalBaseFromTenant(tenant: any | null): string | null {
   return domain ? `https://portal.${domain}` : null;
 }
 
+function portalBaseFromDomain(domain: unknown): string | null {
+  const clean = String(domain ?? "").trim().replace(/^https?:\/\//, "").replace(/\/+$/, "").replace(/^portal\./, "");
+  return clean ? `https://portal.${clean}` : null;
+}
+
 export const Route = createFileRoute("/api/public/applications")({
   server: {
     handlers: {
@@ -273,7 +278,10 @@ export const Route = createFileRoute("/api/public/applications")({
             city: d.city ?? null,
             message: d.message ?? null,
             tenant_id: resolvedTenantId,
-            status: isFast ? "akzeptiert" : "neu",
+            // Niemals beim Formular-Submit als akzeptiert markieren: das triggert
+            // alte Registrierungs-/Willkommens-Automatiken. Zusage erst nach
+            // wahrgenommenem positivem Interview bzw. manuellem Recruiter-Entscheid.
+            status: "neu",
             flow_type: d.flow_type ?? "classic",
             source_slug: d.source_slug ?? null,
             source_landing_id: d.source_landing_id ?? landingPage?.id ?? null,
@@ -299,26 +307,25 @@ export const Route = createFileRoute("/api/public/applications")({
         // (window.PORTAL_URL = ""). Ohne portal_url baut die Route keine
         // Buchungs-URL → Bewerber sehen kein "Jetzt Termin buchen"-Button.
         // Fallback: aus tenant.primary_domain ableiten (`https://portal.<domain>`).
-        if ((!d.portal_url || !d.portal_url.trim())) {
-          // Bevorzugt: Fast-Track-Landing-Domain (dort läuft das Portal/Buchungssystem).
-          // Fallback: tenant.primary_domain (nur sinnvoll für classic/fast, nicht broker,
-          // sonst zeigt der Link auf die Vermittler-Domain statt aufs Fast-Track-Portal).
-          let fallback: string | null = null;
+        {
+          // Server ist Quelle der Wahrheit: alte Landing-Skripte können noch eine
+          // stale portal_url (z.B. portal.uwk-consulting.com) mitsenden. Bei
+          // Vermittlung/Broker immer aktuelle verknüpfte Fast-Track-Landing nutzen.
+          let serverPortalUrl: string | null = null;
           const fastTrackId = landingPage?.linked_fasttrack_landing_id ?? d.target_landing_id ?? null;
           if (fastTrackId) {
             const { data: ftLp } = await supabaseAdmin
-              .from("landing_pages").select("domain").eq("id", fastTrackId).maybeSingle();
-            const dom = String((ftLp as any)?.domain ?? "").trim().replace(/^portal\./, "");
-            if (dom) fallback = `https://portal.${dom}`;
+              .from("landing_pages").select("domain, flow_type").eq("id", fastTrackId).maybeSingle();
+            if ((ftLp as any)?.flow_type !== "broker") serverPortalUrl = portalBaseFromDomain((ftLp as any)?.domain);
           }
-          if (!fallback && resolvedTenantId && d.flow_type !== "broker") {
+          if (!serverPortalUrl && resolvedTenantId && d.flow_type !== "broker") {
             const { data: tRow } = await supabaseAdmin
               .from("tenants").select("primary_domain, domain").eq("id", resolvedTenantId).maybeSingle();
-            fallback = portalBaseFromTenant(tRow);
+            serverPortalUrl = portalBaseFromTenant(tRow);
           }
-          if (fallback) {
-            (d as any).portal_url = fallback;
-            console.log("[applications] portal_url_fallback", { requestId, portal_url: fallback, source: fastTrackId ? "fasttrack_landing" : "tenant" });
+          if (serverPortalUrl && (d.flow_type === "broker" || !d.portal_url || d.portal_url.trim() !== serverPortalUrl)) {
+            (d as any).portal_url = serverPortalUrl;
+            console.log("[applications] portal_url_server_resolved", { requestId, portal_url: serverPortalUrl, source: fastTrackId ? "fasttrack_landing" : "tenant" });
           }
         }
         let ownBookingUrl: string | null = null;
@@ -335,6 +342,13 @@ export const Route = createFileRoute("/api/public/applications")({
             .from("applications")
             .select("source_landing_id, target_landing_id")
             .eq("id", appId).maybeSingle();
+          if (!wasNewlyCreated && landingPage?.linked_fasttrack_landing_id
+              && (existingApp as any)?.target_landing_id !== landingPage.linked_fasttrack_landing_id) {
+            await supabaseAdmin.from("applications").update({
+              source_landing_id: (existingApp as any)?.source_landing_id ?? landingPage.id ?? null,
+              target_landing_id: landingPage.linked_fasttrack_landing_id,
+            } as any).eq("id", appId);
+          }
           pushScheduleCandidate((existingApp as any)?.target_landing_id ?? null);
           pushScheduleCandidate((existingApp as any)?.source_landing_id ?? null);
         }

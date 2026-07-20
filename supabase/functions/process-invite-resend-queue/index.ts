@@ -54,6 +54,15 @@ serve(async (req) => {
     { auth: { autoRefreshToken: false, persistSession: false } },
   );
 
+  // Notbremse: Diese Legacy-Drip-Queue darf keine Registrierungs-/Willkommens-
+  // Mails mehr automatisch versenden. Einladungen erfolgen nur noch explizit
+  // nach Recruiter-Zusage über die Stage-Funktion.
+  const { count: stoppedCount } = await admin.from("invite_resend_queue").update({
+    status: "skipped",
+    last_error: "legacy_auto_invites_disabled",
+  }, { count: "exact" }).eq("status", "queued");
+  return json({ processed: 0, sent: 0, failed: 0, skipped: stoppedCount ?? 0, disabled: "legacy_auto_invites_disabled" }, 200);
+
   // 1) Fällige Rows ziehen
   const { data: due, error: dueErr } = await admin
     .from("invite_resend_queue")
