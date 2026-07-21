@@ -47,9 +47,42 @@ Herzliche Grüße
 {{recruiter_name}}`;
 const DEFAULT_BUTTON = "Termin verwalten";
 
+function cleanHost(domain: unknown): string {
+  return String(domain ?? "").trim().replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+}
+
 function portalHost(domain: unknown): string {
-  const clean = String(domain ?? "").trim().replace(/^https?:\/\//, "").replace(/\/+$/, "").replace(/^portal\./, "");
+  const clean = cleanHost(domain).replace(/^portal\./, "");
   return clean ? `portal.${clean}` : "";
+}
+
+function pickLandingLogo(landing: any): string | null {
+  return landing?.logo_url
+    || landing?.branding?.logo_url
+    || landing?.branding?.logo_image
+    || landing?.slots?.logo_image
+    || landing?.intermediate_logo_url
+    || null;
+}
+
+function resolveEmailLogoUrl(raw: unknown, landingDomain: unknown): string | null {
+  const value = String(raw ?? "").trim();
+  if (!value || value.startsWith("data:")) return null;
+  if (/^https:\/\//i.test(value)) return value;
+  if (/^http:\/\//i.test(value)) return value.replace(/^http:\/\//i, "https://");
+
+  const host = cleanHost(landingDomain);
+  if (!host) return null;
+  const path = value.replace(/^\.\//, "").replace(/^\/+/, "");
+  return path ? `https://${host}/${path}` : null;
+}
+
+function effectiveLogoUrl(tenant: TenantRow, sourceLanding: any, targetLanding: any, fastTrackLanding: any): string | null {
+  return tenant.logo_url
+    || resolveEmailLogoUrl(pickLandingLogo(sourceLanding), sourceLanding?.domain)
+    || resolveEmailLogoUrl(pickLandingLogo(fastTrackLanding), fastTrackLanding?.domain)
+    || resolveEmailLogoUrl(pickLandingLogo(targetLanding), targetLanding?.domain)
+    || null;
 }
 
 interface TenantRow {
@@ -198,7 +231,7 @@ serve(async (req) => {
       ...todo.map((a: any) => appMap.get(a.application_id)?.source_landing_id).filter(Boolean),
     ]));
     const { data: lpList } = lps.length
-      ? await admin.from("landing_pages").select("id, domain, recruiter_name, recruiter_avatar_url, linked_fasttrack_landing_id, flow_type").in("id", lps)
+      ? await admin.from("landing_pages").select("id, domain, logo_url, branding, slots, intermediate_logo_url, recruiter_name, recruiter_avatar_url, linked_fasttrack_landing_id, flow_type").in("id", lps)
       : { data: [] as any[] };
     const lpMap = new Map<string, any>((lpList ?? []).map((l: any) => [l.id, l]));
 
@@ -208,7 +241,7 @@ serve(async (req) => {
     )).filter((id) => !lpMap.has(id));
     if (extraIds.length) {
       const { data: extraLps } = await admin.from("landing_pages")
-        .select("id, domain, recruiter_name, recruiter_avatar_url, linked_fasttrack_landing_id, flow_type").in("id", extraIds);
+        .select("id, domain, logo_url, branding, slots, intermediate_logo_url, recruiter_name, recruiter_avatar_url, linked_fasttrack_landing_id, flow_type").in("id", extraIds);
       for (const l of (extraLps ?? []) as any[]) lpMap.set(l.id, l);
     }
 
@@ -289,7 +322,7 @@ serve(async (req) => {
         body: tenant.booking_confirmation_body || DEFAULT_BODY,
         preheader: DEFAULT_PREHEADER,
         spamHint: true,
-        tenant,
+        tenant: { ...tenant, logo_url: effectiveLogoUrl(tenant, sourceLanding, targetLanding, fastTrackLanding) },
         recruiter: { name: recruiterName, avatar_url: recruiterAvatar, role_label: "Personalabteilung" },
         vars,
       });
