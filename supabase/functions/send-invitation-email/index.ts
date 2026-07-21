@@ -316,7 +316,7 @@ serve(async (req) => {
 
     const { renderEmail } = await import("../_shared/email-wrapper.ts");
     const { html } = renderEmail({
-      subject: `${isApplicationReceived ? "✅ " : "🎉 "}${headline}`,
+      subject: headline,
       body: bodyForWrapper,
       tenant: { ...tenant, logo_url: effectiveLogoUrl },
       recipient: to,
