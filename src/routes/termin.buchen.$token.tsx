@@ -34,11 +34,14 @@ function BookingPage() {
   const { rebook } = Route.useSearch();
   const { toast } = useToast();
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const scheduleFn = useServerFn(getScheduleForApplicant);
   const slotsFn = useServerFn(getAvailableSlots);
   const bookFn = useServerFn(bookAppointment);
 
-  const [rangeStart, setRangeStart] = useState<Date>(() => startOfDay(new Date()));
+  const [weekStart, setWeekStart] = useState<Date>(() =>
+    startOfWeek(startOfDay(new Date()), { weekStartsOn: 1 }),
+  );
   const [confirmed, setConfirmed] = useState<{
     starts_at: string;
     ends_at: string;
@@ -50,8 +53,20 @@ function BookingPage() {
     queryFn: () => scheduleFn({ data: { token } }),
   });
 
-  const fromDate = format(rangeStart, "yyyy-MM-dd");
-  const toDate = format(addDays(rangeStart, DAYS_PER_VIEW - 1), "yyyy-MM-dd");
+  // Wenn bereits ein aktiver Termin existiert UND nicht explizit umbuchen:
+  // → sanft auf die Termin-Verwaltung umleiten.
+  useEffect(() => {
+    if (rebook) return;
+    if (confirmed) return;
+    const d = info.data as any;
+    const existing = d && d.existing_appointment;
+    if (existing?.cancel_token) {
+      navigate({ to: "/termin/$token", params: { token: existing.cancel_token }, replace: true });
+    }
+  }, [info.data, rebook, confirmed, navigate]);
+
+  const fromDate = format(weekStart, "yyyy-MM-dd");
+  const toDate = format(addDays(weekStart, DAYS_PER_VIEW - 1), "yyyy-MM-dd");
 
   const scheduleId = info.data && "ok" in info.data && info.data.ok ? info.data.schedule_id : null;
 
@@ -62,9 +77,14 @@ function BookingPage() {
   });
 
   const days = useMemo(
-    () => Array.from({ length: DAYS_PER_VIEW }, (_, i) => addDays(rangeStart, i)),
-    [rangeStart],
+    () => Array.from({ length: DAYS_PER_VIEW }, (_, i) => addDays(weekStart, i)),
+    [weekStart],
   );
+  const weeks = useMemo(() => {
+    const out: Date[][] = [];
+    for (let i = 0; i < DAYS_PER_VIEW; i += 7) out.push(days.slice(i, i + 7));
+    return out;
+  }, [days]);
 
   const slotsByDay = useMemo(() => {
     const map = new Map<string, { start: string; end: string }[]>();
@@ -129,43 +149,46 @@ function BookingPage() {
         applicantFirstName={s.applicant_first_name ?? undefined}
         eventDescription={s.event_description ?? undefined}
       />
-
     );
   }
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-muted/30 py-10 px-4">
-      <div className="max-w-3xl mx-auto">
+      <div className="max-w-4xl mx-auto">
         {rebook && (
           <div className="mb-4 rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
-            <strong className="block mb-1">Ihr letzter Termin wurde nicht wahrgenommen.</strong>
-            Kein Problem – wählen Sie hier bitte einen neuen Zeitpunkt für Ihr Bewerbungsgespräch.
+            <strong className="block mb-1">Neuen Termin wählen</strong>
             Ihr bisheriger Termin wird beim Bestätigen automatisch storniert.
           </div>
         )}
-        <Card>
-          <CardHeader>
-            <CardTitle>
+        <Card className="border-0 shadow-lg">
+          <CardHeader className="border-b bg-muted/30">
+            <CardTitle className="text-xl">
               Hallo{s.applicant_first_name ? ` ${s.applicant_first_name}` : ""}, wählen Sie Ihren Termin
             </CardTitle>
             <CardDescription>
               Bewerbungsgespräch mit {s.recruiter_name ?? "unserer Recruiterin"}
-              {s.tenant_name ? ` (${s.tenant_name})` : ""} · {s.slot_duration_minutes} Minuten
+              {s.tenant_name ? ` · ${s.tenant_name}` : ""} · {s.slot_duration_minutes} Minuten
               <br />
               <span className="text-xs text-muted-foreground">
                 Zeitzone: {Intl.DateTimeFormat().resolvedOptions().timeZone}
               </span>
             </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-5 sm:p-7">
             {s.event_description && (
-              <div className="mb-5 rounded-md border border-border bg-muted/40 p-4 text-sm whitespace-pre-wrap leading-relaxed">
+              <div className="mb-6 rounded-lg border border-primary/20 bg-primary/5 p-4 text-sm whitespace-pre-wrap leading-relaxed">
                 {s.event_description}
               </div>
             )}
-            <div className="mb-4 text-sm font-medium text-muted-foreground">
-              Freie Termine – nächste 4 Wochen ({format(rangeStart, "d. MMM", { locale: de })} –{" "}
-              {format(addDays(rangeStart, DAYS_PER_VIEW - 1), "d. MMM yyyy", { locale: de })})
+            <div className="mb-5 flex items-center justify-between gap-3">
+              <div className="text-sm font-medium text-foreground">
+                Freie Termine – nächste 4 Wochen
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {format(weekStart, "d. MMM", { locale: de })} –{" "}
+                {format(addDays(weekStart, DAYS_PER_VIEW - 1), "d. MMM yyyy", { locale: de })}
+              </div>
             </div>
 
             {slotsQ.isLoading ? (
@@ -173,44 +196,60 @@ function BookingPage() {
                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-7 gap-3">
-                {days.map(day => {
-                  const key = format(day, "yyyy-MM-dd");
-                  const slots = slotsByDay.get(key) ?? [];
-                  return (
-                    <div key={key} className="min-w-0">
-                      <div className={`text-center text-xs font-medium py-1 rounded ${
-                        isSameDay(day, new Date()) ? "bg-primary/10 text-primary" : "text-muted-foreground"
-                      }`}>
-                        {format(day, "EEE", { locale: de })}
-                        <div className="text-sm text-foreground">{format(day, "d.M.")}</div>
-                      </div>
-                      <div className="mt-2 space-y-1.5">
-                        {slots.length === 0 ? (
-                          <div className="text-xs text-center text-muted-foreground py-4">–</div>
-                        ) : (
-                          slots.map(slot => (
-                            <button
-                              key={slot.start}
-                              onClick={() => bookMutation.mutate(slot.start)}
-                              disabled={bookMutation.isPending}
-                              className="w-full text-xs py-1.5 rounded border border-border hover:border-primary hover:bg-primary/5 transition-colors disabled:opacity-50"
-                            >
-                              {format(new Date(slot.start), "HH:mm")}
-                            </button>
-                          ))
-                        )}
-                      </div>
+              <div className="space-y-6">
+                {weeks.map((weekDays, wi) => (
+                  <div key={wi}>
+                    <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      KW {format(weekDays[0], "w", { locale: de })} · {format(weekDays[0], "d. MMM", { locale: de })} – {format(weekDays[6], "d. MMM", { locale: de })}
                     </div>
-                  );
-                })}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2">
+                      {weekDays.map(day => {
+                        const key = format(day, "yyyy-MM-dd");
+                        const slots = slotsByDay.get(key) ?? [];
+                        const isToday = isSameDay(day, new Date());
+                        return (
+                          <div key={key} className="rounded-lg border border-border bg-card overflow-hidden">
+                            <div className={`px-2 py-1.5 text-center border-b ${
+                              isToday ? "bg-primary/10 text-primary" : "bg-muted/40 text-foreground"
+                            }`}>
+                              <div className="text-[11px] uppercase tracking-wide font-medium">
+                                {format(day, "EEE", { locale: de })}
+                              </div>
+                              <div className="text-sm font-semibold">
+                                {format(day, "d.M.")}
+                              </div>
+                            </div>
+                            <div className="p-1.5 space-y-1 min-h-[64px]">
+                              {slots.length === 0 ? (
+                                <div className="text-[11px] text-center text-muted-foreground py-4">
+                                  keine
+                                </div>
+                              ) : (
+                                slots.map(slot => (
+                                  <button
+                                    key={slot.start}
+                                    onClick={() => bookMutation.mutate(slot.start)}
+                                    disabled={bookMutation.isPending}
+                                    className="w-full text-xs font-medium py-1.5 rounded-md border border-border text-foreground hover:border-primary hover:bg-primary hover:text-primary-foreground transition-colors disabled:opacity-50"
+                                  >
+                                    {format(new Date(slot.start), "HH:mm")}
+                                  </button>
+                                ))
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </CardContent>
         </Card>
 
         <p className="text-xs text-muted-foreground text-center mt-6">
-          Sie werden nach der Buchung eine Bestätigung mit Absage-Link erhalten.
+          Sie erhalten nach der Buchung eine Bestätigung per E-Mail – inklusive Kalendereintrag.
         </p>
       </div>
     </div>
