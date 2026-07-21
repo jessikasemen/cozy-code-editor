@@ -263,11 +263,35 @@ serve(async (req) => {
     const bodyForWrapper = renderedBody.hasCta
       ? renderedBody.html
       : `${renderedBody.html}\n{{cta:${buttonLabel}|${registrationLink}}}\n<p style="font-size:12px;color:#94a3b8;margin:12px 0 0;">Sollte der Button nicht funktionieren, kopieren Sie bitte den folgenden Link in Ihren Browser:<br><a href="${escapeAttr(registrationLink)}" style="color:${brand};word-break:break-all">${escapeHtml(registrationLink)}</a></p>`;
+    // Logo-Fallback: wenn der Tenant kein Logo hat, das Logo der zugehörigen
+    // Landing Page (Bewerbungsquelle) verwenden — so erscheint z.B. bei
+    // Broker-Bestätigungen das Logo der Bewerber-Webseite in der Mail.
+    let effectiveLogoUrl: string | null = tenant.logo_url ?? null;
+    if (!effectiveLogoUrl && body.applicationId) {
+      try {
+        const { data: appRow } = await supabaseAdmin
+          .from("applications")
+          .select("landing_page_id, source_slug, landing_pages!inner(logo_url, branding)")
+          .eq("id", body.applicationId)
+          .maybeSingle();
+        const lp: any = (appRow as any)?.landing_pages ?? null;
+        effectiveLogoUrl = lp?.logo_url || lp?.branding?.logo_image || null;
+        if (!effectiveLogoUrl && (appRow as any)?.source_slug) {
+          const { data: lp2 } = await supabaseAdmin
+            .from("landing_pages")
+            .select("logo_url, branding")
+            .eq("slug", (appRow as any).source_slug)
+            .maybeSingle();
+          effectiveLogoUrl = (lp2 as any)?.logo_url || (lp2 as any)?.branding?.logo_image || null;
+        }
+      } catch (e) { console.warn("[send-invitation-email] logo fallback failed:", (e as any)?.message ?? e); }
+    }
+
     const { renderEmail } = await import("../_shared/email-wrapper.ts");
     const { html } = renderEmail({
       subject: `${isApplicationReceived ? "✅ " : "🎉 "}${headline}`,
       body: bodyForWrapper,
-      tenant,
+      tenant: { ...tenant, logo_url: effectiveLogoUrl },
       recipient: to,
     });
 
