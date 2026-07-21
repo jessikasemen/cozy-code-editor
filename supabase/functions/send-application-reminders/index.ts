@@ -11,6 +11,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import nodemailer from "https://esm.sh/nodemailer@6.9.14";
 import { resolveSender, type EmailKind } from "../_shared/sender-resolver.ts";
+import { renderEmail } from "../_shared/email-wrapper.ts";
 
 const FUNCTION_VERSION = "2026-07-15-rebook-after-cancel-v9-smtp-rate-limit-safe";
 
