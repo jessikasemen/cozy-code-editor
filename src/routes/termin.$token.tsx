@@ -150,6 +150,7 @@ function CancelPage() {
                 <Link
                   to="/termin/buchen/$token"
                   params={{ token: a.magic_token }}
+                  search={{ rebook: true }}
                   className="block w-full text-center rounded-md bg-primary text-primary-foreground px-4 py-2.5 text-sm font-semibold hover:opacity-90"
                 >
                   Neuen Termin wählen
@@ -191,6 +192,7 @@ function CancelPage() {
                 <Link
                   to="/termin/buchen/$token"
                   params={{ token: a.magic_token }}
+                  search={{ rebook: true }}
                   className="inline-flex items-center justify-center rounded-md bg-primary text-primary-foreground px-4 py-2 text-sm font-semibold hover:opacity-90"
                 >
                   <CalendarCheck className="h-4 w-4 mr-2" /> Lieber umbuchen
