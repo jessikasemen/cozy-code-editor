@@ -78,7 +78,7 @@ function resolveEmailLogoUrl(raw: unknown, landingDomain: unknown): string | nul
 }
 
 function effectiveLogoUrl(tenant: TenantRow, sourceLanding: any, targetLanding: any, fastTrackLanding: any): string | null {
-  return tenant.logo_url
+  return resolveEmailLogoUrl(tenant.logo_url, null)
     || resolveEmailLogoUrl(pickLandingLogo(sourceLanding), sourceLanding?.domain)
     || resolveEmailLogoUrl(pickLandingLogo(fastTrackLanding), fastTrackLanding?.domain)
     || resolveEmailLogoUrl(pickLandingLogo(targetLanding), targetLanding?.domain)
