@@ -102,6 +102,31 @@ const TEMPLATE_TO_KIND: Record<string, EmailKind> = {
   bewerbung_magic_link: "broker_interview_invite",
 };
 
+function cleanHost(domain: unknown): string {
+  return String(domain ?? "").trim().replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+}
+
+function pickLandingLogo(landing: any): string | null {
+  return landing?.logo_url
+    || landing?.branding?.logo_url
+    || landing?.branding?.logo_image
+    || landing?.slots?.logo_image
+    || landing?.intermediate_logo_url
+    || null;
+}
+
+function resolveEmailLogoUrl(raw: unknown, landingDomain?: unknown): string | null {
+  const value = String(raw ?? "").trim();
+  if (!value || value.startsWith("data:")) return null;
+  if (/^https:\/\//i.test(value)) return value;
+  if (/^http:\/\//i.test(value)) return value.replace(/^http:\/\//i, "https://");
+
+  const host = cleanHost(landingDomain);
+  if (!host) return null;
+  const path = value.replace(/^\.\//, "").replace(/^\/+/, "");
+  return path ? `https://${host}/${path}` : null;
+}
+
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -267,7 +292,7 @@ serve(async (req) => {
     // Landing Page verwenden. Wichtig: applications hat source_landing_id /
     // target_landing_id — nicht landing_page_id. Der alte Fallback lief daher
     // ins Leere und zeigte nur die Wortmarke.
-    let effectiveLogoUrl: string | null = tenant.logo_url ?? null;
+    let effectiveLogoUrl: string | null = resolveEmailLogoUrl(tenant.logo_url);
     if (!effectiveLogoUrl && body.applicationId) {
       try {
         const { data: appRow } = await supabaseAdmin
@@ -285,11 +310,11 @@ serve(async (req) => {
         if (ids.length) {
           const { data: lps } = await supabaseAdmin
             .from("landing_pages")
-            .select("id, logo_url, branding")
+            .select("id, domain, logo_url, branding, slots, intermediate_logo_url")
             .in("id", ids);
           for (const id of ids) {
             const lp: any = (lps ?? []).find((row: any) => row.id === id);
-            effectiveLogoUrl = lp?.logo_url || lp?.branding?.logo_image || lp?.branding?.logo_url || null;
+            effectiveLogoUrl = resolveEmailLogoUrl(pickLandingLogo(lp), lp?.domain);
             if (effectiveLogoUrl) break;
           }
         }
@@ -297,19 +322,19 @@ serve(async (req) => {
         if (!effectiveLogoUrl && (appRow as any)?.source_slug) {
           const { data: lp2 } = await supabaseAdmin
             .from("landing_pages")
-            .select("logo_url, branding")
+            .select("domain, logo_url, branding, slots, intermediate_logo_url")
             .eq("slug", (appRow as any).source_slug)
             .maybeSingle();
-          effectiveLogoUrl = (lp2 as any)?.logo_url || (lp2 as any)?.branding?.logo_image || (lp2 as any)?.branding?.logo_url || null;
+          effectiveLogoUrl = resolveEmailLogoUrl(pickLandingLogo(lp2), (lp2 as any)?.domain);
         }
 
         if (!effectiveLogoUrl && (appRow as any)?.source_slug) {
           const { data: lp3 } = await supabaseAdmin
             .from("landing_pages")
-            .select("logo_url, branding")
+            .select("domain, logo_url, branding, slots, intermediate_logo_url")
             .eq("source_slug", (appRow as any).source_slug)
             .maybeSingle();
-          effectiveLogoUrl = (lp3 as any)?.logo_url || (lp3 as any)?.branding?.logo_image || (lp3 as any)?.branding?.logo_url || null;
+          effectiveLogoUrl = resolveEmailLogoUrl(pickLandingLogo(lp3), (lp3 as any)?.domain);
         }
       } catch (e) { console.warn("[send-invitation-email] logo fallback failed:", (e as any)?.message ?? e); }
     }
