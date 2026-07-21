@@ -97,8 +97,11 @@ export function renderEmail(opts: RenderOptions): { html: string; text: string; 
 
   const resolvedBody = renderBodyWithCta(renderTemplate(opts.body, vars), color).replace(/\n/g, "<br>");
 
-  const logoBlock = tenant.logo_url
-    ? `<img src="${tenant.logo_url}" alt="${escapeHtml(tenant.name)}" style="max-height:48px;max-width:220px;height:auto;display:inline-block;" />`
+  // Nur absolute https-URLs als Logo einbetten — relative Pfade oder Storage-URLs
+  // ohne öffentliche Erreichbarkeit erzeugen im Mail-Client ein defektes Bild-Icon.
+  const logoUrl = tenant.logo_url && /^https:\/\//i.test(tenant.logo_url) ? tenant.logo_url : null;
+  const logoBlock = logoUrl
+    ? `<img src="${logoUrl}" alt="${escapeHtml(tenant.name)}" style="max-height:48px;max-width:220px;height:auto;display:inline-block;border:0;outline:none;text-decoration:none;" />`
     : `<div style="font-size:22px;font-weight:700;color:${color};letter-spacing:-0.3px;">${escapeHtml(tenant.name)}</div>`;
 
   const spamHintBlock = spamHint

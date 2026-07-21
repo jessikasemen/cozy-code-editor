@@ -22,7 +22,7 @@ const corsHeaders = {
 
 const DEFAULT_WELCOME_TEMPLATE = `Hallo {{first_name}},
 
-herzlichen Glückwunsch – Ihr Profil hat uns überzeugt! 🎉
+herzlichen Glückwunsch – Ihr Profil hat uns überzeugt.
 
 Damit Sie direkt starten können, ist nur noch ein Schritt nötig: die Registrierung im Mitarbeiter-Portal.
 
@@ -44,7 +44,7 @@ Bei Fragen antworten Sie einfach auf diese E-Mail – wir helfen gerne.
 Herzliche Grüße
 {{sender_name}}`;
 
-const DEFAULT_APPLICATION_RECEIVED_SUBJECT = "✅ Bewerbung eingegangen – nächster Schritt";
+const DEFAULT_APPLICATION_RECEIVED_SUBJECT = "Bewerbung eingegangen – nächster Schritt";
 const DEFAULT_APPLICATION_RECEIVED_TEMPLATE = `Hallo {{first_name}},
 
 vielen Dank für Ihre Bewerbung bei {{tenant_name}}. Wir haben Ihre Angaben erhalten.
@@ -244,10 +244,10 @@ serve(async (req) => {
 
     const subject = subjectOverride && subjectOverride.trim()
       ? subjectOverride.trim()
-      : (dbSubject ? applyPh(dbSubject) : isApplicationReceived ? applyPh(DEFAULT_APPLICATION_RECEIVED_SUBJECT) : `🎉 Willkommen im Team – Ihre Registrierung in 5 Min`);
+      : (dbSubject ? applyPh(dbSubject) : isApplicationReceived ? applyPh(DEFAULT_APPLICATION_RECEIVED_SUBJECT) : `Willkommen im Team – Ihre Registrierung in 5 Minuten`);
     const headline = headlineOverride && headlineOverride.trim()
       ? headlineOverride.trim()
-      : isApplicationReceived ? "Bewerbung eingegangen" : "Willkommen im Team!";
+      : isApplicationReceived ? "Bewerbung eingegangen" : "Willkommen im Team";
     const buttonLabel = buttonLabelOverride && buttonLabelOverride.trim()
       ? buttonLabelOverride.trim()
       : (dbButton ? applyPh(dbButton) : isApplicationReceived ? "Jetzt Termin buchen" : "Jetzt registrieren");
@@ -316,7 +316,7 @@ serve(async (req) => {
 
     const { renderEmail } = await import("../_shared/email-wrapper.ts");
     const { html } = renderEmail({
-      subject: `${isApplicationReceived ? "✅ " : "🎉 "}${headline}`,
+      subject: headline,
       body: bodyForWrapper,
       tenant: { ...tenant, logo_url: effectiveLogoUrl },
       recipient: to,
