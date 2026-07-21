@@ -22,7 +22,7 @@ const corsHeaders = {
 
 const DEFAULT_WELCOME_TEMPLATE = `Hallo {{first_name}},
 
-herzlichen Glückwunsch – Ihr Profil hat uns überzeugt! 🎉
+herzlichen Glückwunsch – Ihr Profil hat uns überzeugt.
 
 Damit Sie direkt starten können, ist nur noch ein Schritt nötig: die Registrierung im Mitarbeiter-Portal.
 
