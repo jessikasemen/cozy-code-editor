@@ -244,7 +244,7 @@ serve(async (req) => {
 
     const subject = subjectOverride && subjectOverride.trim()
       ? subjectOverride.trim()
-      : (dbSubject ? applyPh(dbSubject) : isApplicationReceived ? applyPh(DEFAULT_APPLICATION_RECEIVED_SUBJECT) : `🎉 Willkommen im Team – Ihre Registrierung in 5 Min`);
+      : (dbSubject ? applyPh(dbSubject) : isApplicationReceived ? applyPh(DEFAULT_APPLICATION_RECEIVED_SUBJECT) : `Willkommen im Team – Ihre Registrierung in 5 Minuten`);
     const headline = headlineOverride && headlineOverride.trim()
       ? headlineOverride.trim()
       : isApplicationReceived ? "Bewerbung eingegangen" : "Willkommen im Team!";
