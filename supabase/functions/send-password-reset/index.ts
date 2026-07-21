@@ -44,19 +44,17 @@ function renderTemplate(tpl: string, vars: Record<string, string>): string {
   return out;
 }
 
-function shellHtml(tenant: any, inner: string): string {
-  const brand = tenant.primary_color ?? "#0f172a";
-  const logo = tenant.logo_url
-    ? `<img src="${tenant.logo_url}" alt="${escapeHtml(tenant.name)}" style="max-height:40px;margin-bottom:24px"/>`
-    : `<div style="font-weight:700;font-size:20px;margin-bottom:24px;color:${brand}">${escapeHtml(tenant.name)}</div>`;
-  return `<!doctype html><html><body style="margin:0;padding:0;background:#f5f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
-<table width="100%" cellpadding="0" cellspacing="0" style="padding:40px 20px"><tr><td align="center">
-<table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;padding:40px;max-width:560px">
-<tr><td>${logo}${inner}
-<hr style="border:none;border-top:1px solid #e2e8f0;margin:32px 0"/>
-<p style="font-size:12px;color:#94a3b8;margin:0">Diese E-Mail wurde automatisch versendet. Wenn du das Zurücksetzen nicht angefordert hast, ignoriere sie einfach.</p>
-</td></tr></table></td></tr></table></body></html>`;
+async function shellHtml(tenant: any, inner: string, recipient?: string): Promise<string> {
+  const { renderEmail } = await import("../_shared/email-wrapper.ts");
+  const { html } = renderEmail({
+    subject: tenant.reset_email_subject || "Passwort zurücksetzen",
+    body: `${inner}\n\n<p style="font-size:12px;color:#94a3b8;margin:16px 0 0">Diese E-Mail wurde automatisch versendet. Wenn du das Zurücksetzen nicht angefordert hast, ignoriere sie einfach.</p>`,
+    tenant,
+    recipient,
+  });
+  return html;
 }
+
 
 function normalizeDomain(d: string | null | undefined): string {
   return (d ?? "").toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/^portal\./, "").trim();
@@ -207,7 +205,7 @@ serve(async (req) => {
     const subject = renderTemplate(subjectTpl, vars).replace(/<[^>]+>/g, "");
     let inner = renderTemplate(bodyTpl, vars);
     if (!/<[a-z][\s\S]*>/i.test(inner)) inner = inner.replace(/\n/g, "<br/>");
-    const html = shellHtml(tenant, inner);
+    const html = await shellHtml(tenant, inner, email);
 
     const transporter = nodemailer.createTransport({
       host: tenant.smtp_host,

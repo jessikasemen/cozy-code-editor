@@ -1,18 +1,17 @@
-// Shared email wrapper – ein einheitliches, professionelles Layout für alle
-// Bewerber-Mails (Buchungsbestätigung, Reminder, Zusagen, Einladungen).
+// Shared email wrapper — Corporate Minimalist Design
 //
-// Features:
-//  - Logo oben (tenant.logo_url) mit Textfallback
-//  - Preheader (versteckter Vorschautext, den Gmail neben dem Betreff zeigt)
-//  - Primärfarben-Buttons via {{cta:Label|URL}}
-//  - Ansprechpartner-Karte unten (Name + Foto)
-//  - Footer: Firmenname + "Antworten Sie einfach auf diese E-Mail"
-//  - Optionaler Spam-Hinweis-Block (spam_hint: true)
-//  - Automatisch generierte Plain-Text-Version (Spam-Score ↓)
+// Einheitliches, professionelles Layout für ALLE Tenant-Mails:
+//  - 6px Brand-Farb-Akzent oben
+//  - Zentriertes Tenant-Logo (Fallback: Wortmarke)
+//  - Klare Typo (Slate-Grau + Brand-Farbe für CTAs/Links)
+//  - Optionale Recruiter-Karte (Avatar + Name + Rolle)
+//  - Footer mit Firmenname + Copyright
+//  - Optionaler Spam-Hinweis
+//  - Automatisch generierte Plain-Text-Version
 //
-// Benutzung aus einer Edge-Function:
+// Benutzung:
 //   import { renderEmail, htmlToText } from "../_shared/email-wrapper.ts";
-//   const { html, text } = renderEmail({ subject, body, preheader, spamHint, tenant, recruiter, vars });
+//   const { html, text, subject } = renderEmail({ subject, body, tenant, recruiter, vars });
 
 export type TenantBrand = {
   name: string;
@@ -26,7 +25,7 @@ export type TenantBrand = {
 export type RecruiterBrand = {
   name?: string | null;
   avatar_url?: string | null;
-  role_label?: string | null; // z.B. "Personalabteilung"
+  role_label?: string | null;
 };
 
 export type RenderOptions = {
@@ -37,9 +36,11 @@ export type RenderOptions = {
   tenant: TenantBrand;
   recruiter?: RecruiterBrand | null;
   vars?: Record<string, string>;
+  /** Optionaler Recipient (für Footer-Hinweis "Diese E-Mail wurde an X gesendet"). */
+  recipient?: string;
 };
 
-const DEFAULT_COLOR = "#0f172a";
+const DEFAULT_COLOR = "#2563eb"; // schöneres Default-Blau statt Slate-900
 
 export function renderTemplate(text: string, vars: Record<string, string> = {}): string {
   let out = text;
@@ -58,7 +59,6 @@ function escapeHtml(s: string): string {
     .replace(/'/g, "&#039;");
 }
 
-// Verwandelt HTML in nüchternen Plain-Text (für multipart/alternative)
 export function htmlToText(html: string): string {
   return html
     .replace(/<style[\s\S]*?<\/style>/gi, "")
@@ -66,7 +66,6 @@ export function htmlToText(html: string): string {
     .replace(/<br\s*\/?>(\s*)/gi, "\n")
     .replace(/<\/(p|div|h[1-6]|li|tr)>/gi, "\n")
     .replace(/<li[^>]*>/gi, "  • ")
-    // Buttons/CTA <a href="X">Label</a> → Label ( X )
     .replace(/<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi, "$2 ( $1 )")
     .replace(/<[^>]+>/g, "")
     .replace(/&nbsp;/g, " ")
@@ -80,51 +79,53 @@ export function htmlToText(html: string): string {
 }
 
 function renderBodyWithCta(body: string, color: string): string {
-  // CTA-Syntax: {{cta:Label|URL}}
   return body.replace(/\{\{cta:([^|}]+)\|([^}]+)\}\}/g, (_m, label, href) => {
     const safeLabel = String(label).trim();
     const safeHref = String(href).trim();
-    return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:20px 0;"><tr><td style="background:${color};border-radius:8px;"><a href="${safeHref}" style="display:inline-block;padding:14px 32px;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">${escapeHtml(safeLabel)}</a></td></tr></table>`;
+    return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0;"><tr><td style="background:${color};border-radius:6px;">
+<a href="${safeHref}" style="display:inline-block;padding:14px 32px;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">${escapeHtml(safeLabel)}</a>
+</td></tr></table>`;
   });
 }
 
 export function renderEmail(opts: RenderOptions): { html: string; text: string; subject: string } {
-  const { tenant, recruiter, vars = {}, spamHint = false } = opts;
+  const { tenant, recruiter, vars = {}, spamHint = false, recipient } = opts;
   const color = tenant.primary_color || DEFAULT_COLOR;
   const year = new Date().getFullYear();
   const subject = renderTemplate(opts.subject, vars);
   const preheaderText = opts.preheader ? renderTemplate(opts.preheader, vars) : "";
 
-  // Body: Templatevariablen ersetzen, CTA-Buttons rendern, \n → <br>
   const resolvedBody = renderBodyWithCta(renderTemplate(opts.body, vars), color).replace(/\n/g, "<br>");
 
   const logoBlock = tenant.logo_url
-    ? `<div style="text-align:center;margin-bottom:28px;"><img src="${tenant.logo_url}" alt="${escapeHtml(tenant.name)}" style="max-height:56px;max-width:220px;height:auto;" /></div>`
-    : `<div style="text-align:center;margin-bottom:28px;"><div style="font-size:22px;font-weight:700;color:${color};">${escapeHtml(tenant.name)}</div></div>`;
+    ? `<img src="${tenant.logo_url}" alt="${escapeHtml(tenant.name)}" style="max-height:48px;max-width:220px;height:auto;display:inline-block;" />`
+    : `<div style="font-size:22px;font-weight:700;color:${color};letter-spacing:-0.3px;">${escapeHtml(tenant.name)}</div>`;
 
   const spamHintBlock = spamHint
-    ? `<div style="margin:24px 0 8px;padding:14px 16px;background:#fef3c7;border-left:4px solid #f59e0b;border-radius:6px;color:#78350f;font-size:13px;line-height:1.55;">💡 <strong>Tipp:</strong> Sollten Sie diese E-Mail nicht im Posteingang finden, schauen Sie kurz in den Spam-Ordner und markieren Sie uns bitte als „Kein Spam" – so gelangen künftige Nachrichten sicher zu Ihnen.</div>`
+    ? `<div style="margin:24px 0 8px;padding:14px 16px;background:#fef3c7;border-left:3px solid #f59e0b;border-radius:4px;color:#78350f;font-size:13px;line-height:1.55;">💡 <strong>Tipp:</strong> Sollten Sie diese E-Mail nicht im Posteingang finden, schauen Sie kurz in den Spam-Ordner und markieren Sie uns bitte als „Kein Spam“ – so gelangen künftige Nachrichten sicher zu Ihnen.</div>`
     : "";
 
   const recruiterBlock = recruiter?.name
-    ? `<div style="margin-top:32px;padding-top:24px;border-top:1px solid #e5e7eb;">
-        <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;">
-          <tr>
-            ${recruiter.avatar_url ? `<td style="width:56px;vertical-align:middle;padding-right:14px;"><img src="${recruiter.avatar_url}" alt="${escapeHtml(recruiter.name)}" style="width:56px;height:56px;border-radius:50%;object-fit:cover;" /></td>` : ""}
-            <td style="vertical-align:middle;">
-              <div style="font-weight:600;color:#111827;font-size:15px;">${escapeHtml(recruiter.name)}</div>
-              <div style="color:#6b7280;font-size:13px;margin-top:2px;">${escapeHtml(recruiter.role_label || "Personalabteilung")} · ${escapeHtml(tenant.name)}</div>
-            </td>
-          </tr>
-        </table>
-      </div>`
+    ? `<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;margin-bottom:24px;">
+        <tr>
+          ${recruiter.avatar_url
+            ? `<td style="width:48px;vertical-align:middle;padding-right:14px;"><img src="${recruiter.avatar_url}" alt="${escapeHtml(recruiter.name)}" style="width:48px;height:48px;border-radius:50%;object-fit:cover;display:block;" /></td>`
+            : `<td style="width:48px;vertical-align:middle;padding-right:14px;"><div style="width:48px;height:48px;border-radius:50%;background:#e2e8f0;color:#64748b;font-size:16px;font-weight:600;line-height:48px;text-align:center;">${escapeHtml((recruiter.name || "?").trim().charAt(0).toUpperCase())}</div></td>`}
+          <td style="vertical-align:middle;">
+            <div style="font-weight:600;color:#0f172a;font-size:14px;">${escapeHtml(recruiter.name)}</div>
+            <div style="color:#64748b;font-size:12px;margin-top:2px;">${escapeHtml(recruiter.role_label || "Personalabteilung")}</div>
+          </td>
+        </tr>
+      </table>`
     : "";
 
   const signatureBlock = tenant.email_signature
-    ? `<div style="margin-top:20px;color:#9ca3af;font-size:12px;line-height:18px;">${renderTemplate(tenant.email_signature, vars).replace(/\n/g, "<br>")}</div>`
+    ? `<div style="margin-top:16px;color:#94a3b8;font-size:12px;line-height:18px;">${renderTemplate(tenant.email_signature, vars).replace(/\n/g, "<br>")}</div>`
     : "";
 
-  const replyHint = `<div style="text-align:center;color:#6b7280;font-size:12px;margin-top:14px;">Haben Sie Fragen? Antworten Sie einfach auf diese E-Mail.</div>`;
+  const recipientLine = recipient
+    ? `<div style="text-align:center;color:#94a3b8;font-size:11px;margin-top:8px;">Diese E-Mail wurde an ${escapeHtml(recipient)} gesendet.</div>`
+    : "";
 
   const preheaderHidden = preheaderText
     ? `<div style="display:none;overflow:hidden;line-height:1px;opacity:0;max-height:0;max-width:0;">${escapeHtml(preheaderText)}</div>`
@@ -137,20 +138,30 @@ export function renderEmail(opts: RenderOptions): { html: string; text: string; 
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${escapeHtml(subject)}</title>
 </head>
-<body style="margin:0;padding:0;background:#f4f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
+<body style="margin:0;padding:0;background:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#0f172a;">
 ${preheaderHidden}
-<div style="max-width:600px;margin:0 auto;padding:32px 16px;">
-  <div style="background:#ffffff;border-radius:12px;padding:36px 28px;box-shadow:0 1px 3px rgba(0,0,0,0.06);">
-    ${logoBlock}
-    <h1 style="color:#111827;font-size:22px;font-weight:700;margin:0 0 20px;line-height:1.35;">${escapeHtml(subject)}</h1>
-    <div style="color:#374151;font-size:15px;line-height:26px;">${resolvedBody}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;padding:32px 16px;">
+<tr><td align="center">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border:1px solid #e2e8f0;border-radius:10px;box-shadow:0 1px 3px rgba(15,23,42,0.04);overflow:hidden;">
+  <tr><td style="height:6px;background:${color};line-height:6px;font-size:0;">&nbsp;</td></tr>
+  <tr><td style="padding:40px 44px 8px;text-align:center;">${logoBlock}</td></tr>
+  <tr><td style="padding:24px 44px 8px;">
+    <h1 style="color:#0f172a;font-size:22px;font-weight:700;margin:0 0 20px;line-height:1.3;letter-spacing:-0.2px;">${escapeHtml(subject)}</h1>
+    <div style="color:#475569;font-size:15px;line-height:1.65;">${resolvedBody}</div>
     ${spamHintBlock}
-    ${recruiterBlock}
-    ${signatureBlock}
-  </div>
-  ${replyHint}
-  <div style="text-align:center;margin-top:12px;color:#9ca3af;font-size:11px;">© ${year} ${escapeHtml(tenant.name)}</div>
-</div>
+  </td></tr>
+  <tr><td style="padding:32px 44px 32px;">
+    <div style="border-top:1px solid #e2e8f0;padding-top:24px;">
+      ${recruiterBlock}
+      ${signatureBlock}
+      <div style="text-align:center;color:#94a3b8;font-size:11px;text-transform:uppercase;letter-spacing:1.2px;font-weight:500;margin-top:8px;">Gesendet von ${escapeHtml(tenant.name)}</div>
+    </div>
+  </td></tr>
+</table>
+<div style="text-align:center;color:#94a3b8;font-size:11px;margin-top:16px;">© ${year} ${escapeHtml(tenant.name)}</div>
+${recipientLine}
+</td></tr>
+</table>
 </body>
 </html>`;
 
