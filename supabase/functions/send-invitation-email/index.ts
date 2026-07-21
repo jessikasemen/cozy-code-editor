@@ -264,25 +264,52 @@ serve(async (req) => {
       ? renderedBody.html
       : `${renderedBody.html}\n{{cta:${buttonLabel}|${registrationLink}}}\n<p style="font-size:12px;color:#94a3b8;margin:12px 0 0;">Sollte der Button nicht funktionieren, kopieren Sie bitte den folgenden Link in Ihren Browser:<br><a href="${escapeAttr(registrationLink)}" style="color:${brand};word-break:break-all">${escapeHtml(registrationLink)}</a></p>`;
     // Logo-Fallback: wenn der Tenant kein Logo hat, das Logo der zugehörigen
-    // Landing Page (Bewerbungsquelle) verwenden — so erscheint z.B. bei
-    // Broker-Bestätigungen das Logo der Bewerber-Webseite in der Mail.
+    // Landing Page verwenden. Wichtig: applications hat source_landing_id /
+    // target_landing_id — nicht landing_page_id. Der alte Fallback lief daher
+    // ins Leere und zeigte nur die Wortmarke.
     let effectiveLogoUrl: string | null = tenant.logo_url ?? null;
     if (!effectiveLogoUrl && body.applicationId) {
       try {
         const { data: appRow } = await supabaseAdmin
           .from("applications")
-          .select("landing_page_id, source_slug, landing_pages!inner(logo_url, branding)")
+          .select("source_landing_id, target_landing_id, source_slug")
           .eq("id", body.applicationId)
           .maybeSingle();
-        const lp: any = (appRow as any)?.landing_pages ?? null;
-        effectiveLogoUrl = lp?.logo_url || lp?.branding?.logo_image || null;
+
+        const preferFasttrackLogo = routingKind?.startsWith("fasttrack_") ?? false;
+        const landingIds = preferFasttrackLogo
+          ? [(appRow as any)?.target_landing_id, (appRow as any)?.source_landing_id]
+          : [(appRow as any)?.source_landing_id, (appRow as any)?.target_landing_id];
+
+        const ids = landingIds.filter(Boolean) as string[];
+        if (ids.length) {
+          const { data: lps } = await supabaseAdmin
+            .from("landing_pages")
+            .select("id, logo_url, branding")
+            .in("id", ids);
+          for (const id of ids) {
+            const lp: any = (lps ?? []).find((row: any) => row.id === id);
+            effectiveLogoUrl = lp?.logo_url || lp?.branding?.logo_image || lp?.branding?.logo_url || null;
+            if (effectiveLogoUrl) break;
+          }
+        }
+
         if (!effectiveLogoUrl && (appRow as any)?.source_slug) {
           const { data: lp2 } = await supabaseAdmin
             .from("landing_pages")
             .select("logo_url, branding")
             .eq("slug", (appRow as any).source_slug)
             .maybeSingle();
-          effectiveLogoUrl = (lp2 as any)?.logo_url || (lp2 as any)?.branding?.logo_image || null;
+          effectiveLogoUrl = (lp2 as any)?.logo_url || (lp2 as any)?.branding?.logo_image || (lp2 as any)?.branding?.logo_url || null;
+        }
+
+        if (!effectiveLogoUrl && (appRow as any)?.source_slug) {
+          const { data: lp3 } = await supabaseAdmin
+            .from("landing_pages")
+            .select("logo_url, branding")
+            .eq("source_slug", (appRow as any).source_slug)
+            .maybeSingle();
+          effectiveLogoUrl = (lp3 as any)?.logo_url || (lp3 as any)?.branding?.logo_image || (lp3 as any)?.branding?.logo_url || null;
         }
       } catch (e) { console.warn("[send-invitation-email] logo fallback failed:", (e as any)?.message ?? e); }
     }
