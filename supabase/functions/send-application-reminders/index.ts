@@ -82,11 +82,11 @@ Herzliche Grüße
 {{tenant_name}}`,
   },
   registration: {
-    subject: "🎉 Ihr Portal-Zugang wartet – nur noch ein Klick, {{first_name}}",
+    subject: "Ihr Portal-Zugang wartet – nur noch ein Klick, {{first_name}}",
     body:
 `Hallo {{first_name}},
 
-herzlichen Glückwunsch nochmal zu Ihrer Zusage bei {{tenant_name}}! 🎊
+herzlichen Glückwunsch nochmal zu Ihrer Zusage bei {{tenant_name}}.
 
 Uns ist aufgefallen, dass Sie sich noch nicht im Mitarbeiter-Portal registriert haben. Erst mit der Registrierung können wir Ihren Arbeitsvertrag bereitstellen und Sie erhalten Zugriff auf Ihre ersten Aufträge.
 

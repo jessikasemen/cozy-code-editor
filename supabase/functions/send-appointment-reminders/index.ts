@@ -30,16 +30,16 @@ const corsHeaders = {
 const WINDOW_LOW_MIN = 25;
 const WINDOW_HIGH_MIN = 40;
 
-const DEFAULT_SUBJECT = "⏰ In 30 Minuten startet Ihr Bewerbungsgespräch";
+const DEFAULT_SUBJECT = "In 30 Minuten startet Ihr Bewerbungsgespräch";
 const DEFAULT_BODY = `Hallo {{first_name}},
 
 kurze Erinnerung: In etwa 30 Minuten ({{appointment_time}} Uhr) startet Ihr Bewerbungsgespräch.
 
 So läuft es ab:
 
-1️⃣  Kurzes Gespräch (ca. 10–15 Min)
-2️⃣  Bei positiver Bewertung erhalten Sie direkt eine Zusage per E-Mail
-3️⃣  Anschließend Registrierung im Mitarbeiter-Portal – Vertrag digital unterschreiben und loslegen
+1. Kurzes Gespräch (ca. 10–15 Min)
+2. Bei positiver Bewertung erhalten Sie direkt eine Zusage per E-Mail
+3. Anschließend Registrierung im Mitarbeiter-Portal – Vertrag digital unterschreiben und loslegen
 
 Bitte starten Sie das Gespräch über Ihren persönlichen Link:
 
