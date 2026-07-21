@@ -247,7 +247,7 @@ serve(async (req) => {
       : (dbSubject ? applyPh(dbSubject) : isApplicationReceived ? applyPh(DEFAULT_APPLICATION_RECEIVED_SUBJECT) : `Willkommen im Team – Ihre Registrierung in 5 Minuten`);
     const headline = headlineOverride && headlineOverride.trim()
       ? headlineOverride.trim()
-      : isApplicationReceived ? "Bewerbung eingegangen" : "Willkommen im Team!";
+      : isApplicationReceived ? "Bewerbung eingegangen" : "Willkommen im Team";
     const buttonLabel = buttonLabelOverride && buttonLabelOverride.trim()
       ? buttonLabelOverride.trim()
       : (dbButton ? applyPh(dbButton) : isApplicationReceived ? "Jetzt Termin buchen" : "Jetzt registrieren");
