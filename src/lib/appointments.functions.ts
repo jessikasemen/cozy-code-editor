@@ -29,7 +29,39 @@ export const getScheduleForApplicant = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
     const row = (rows as any[])?.[0];
     if (!row) return { ok: false as const, error: "not_found" as const };
-    if (!row.schedule_id) return { ok: false as const, error: "no_schedule" as const, tenant_name: row.tenant_name };
+
+    // Aktiven Termin für diesen Bewerber suchen (falls schon gebucht).
+    let existing_appointment: null | {
+      starts_at: string; ends_at: string; cancel_token: string;
+    } = null;
+    try {
+      const { data: appRow } = await supabaseAdmin
+        .from("applications")
+        .select("id")
+        .eq("magic_token", data.token)
+        .maybeSingle();
+      if (appRow?.id) {
+        const { data: apt } = await supabaseAdmin
+          .from("interview_appointments")
+          .select("starts_at, ends_at, cancel_token")
+          .eq("application_id", appRow.id)
+          .eq("status", "scheduled")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (apt) existing_appointment = {
+          starts_at: apt.starts_at as string,
+          ends_at: apt.ends_at as string,
+          cancel_token: apt.cancel_token as string,
+        };
+      }
+    } catch { /* non-fatal */ }
+
+    if (!row.schedule_id) return {
+      ok: false as const, error: "no_schedule" as const,
+      tenant_name: row.tenant_name,
+      existing_appointment,
+    };
     return {
       ok: true as const,
       schedule_id: row.schedule_id as string,
@@ -44,6 +76,7 @@ export const getScheduleForApplicant = createServerFn({ method: "POST" })
       landing_page_id: row.landing_page_id as string | null,
       event_description: (row.event_description ?? null) as string | null,
       booking_window_days: (row.booking_window_days ?? 30) as number,
+      existing_appointment,
     };
   });
 

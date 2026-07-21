@@ -130,6 +130,10 @@ function CancelPage() {
               <div className="text-2xl font-semibold mt-1">
                 {format(start, "HH:mm")} – {format(end, "HH:mm")} Uhr
               </div>
+              <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+                <CalendarClock className="h-3.5 w-3.5" />
+                Ihr Termin startet um {format(start, "HH:mm")} Uhr
+              </div>
             </div>
 
             <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 space-y-3">
