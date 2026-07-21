@@ -44,7 +44,7 @@ Bei Fragen antworten Sie einfach auf diese E-Mail – wir helfen gerne.
 Herzliche Grüße
 {{sender_name}}`;
 
-const DEFAULT_APPLICATION_RECEIVED_SUBJECT = "✅ Bewerbung eingegangen – nächster Schritt";
+const DEFAULT_APPLICATION_RECEIVED_SUBJECT = "Bewerbung eingegangen – nächster Schritt";
 const DEFAULT_APPLICATION_RECEIVED_TEMPLATE = `Hallo {{first_name}},
 
 vielen Dank für Ihre Bewerbung bei {{tenant_name}}. Wir haben Ihre Angaben erhalten.
