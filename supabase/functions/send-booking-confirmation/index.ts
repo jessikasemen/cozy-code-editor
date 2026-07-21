@@ -23,7 +23,7 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const DEFAULT_SUBJECT = "✅ Termin bestätigt: {{appointment_date}}, {{appointment_time}} Uhr";
+const DEFAULT_SUBJECT = "Termin bestätigt: {{appointment_date}}, {{appointment_time}} Uhr";
 const DEFAULT_PREHEADER = "Ihr Bewerbungsgespräch am {{appointment_date}} um {{appointment_time}} Uhr – alle Infos + Kalendereintrag im Anhang.";
 const DEFAULT_BODY = `Hallo {{first_name}},
 
