@@ -146,23 +146,13 @@ serve(async (req) => {
     const bodyHtml = bodyResolved
       .split(/\n/).map((line) => /<table|<a |<div|<p|<h[1-6]/.test(line) ? line : escapeHtml(line)).join("<br>");
 
-    const logo = tenant.logo_url
-      ? `<img src="${tenant.logo_url}" alt="${escapeHtml(tenant.name)}" style="max-height:40px;margin-bottom:24px"/>`
-      : `<div style="font-weight:700;font-size:20px;margin-bottom:24px;color:${brand}">${escapeHtml(tenant.name)}</div>`;
-    const sig = tenant.email_signature
-      ? `<hr style="border:none;border-top:1px solid #e2e8f0;margin:32px 0"/><div style="font-size:12px;color:#94a3b8;line-height:1.5">${escapeHtml(tenant.email_signature).replace(/\n/g, "<br>")}</div>`
-      : `<hr style="border:none;border-top:1px solid #e2e8f0;margin:32px 0"/><p style="font-size:12px;color:#94a3b8;margin:0">Diese E-Mail wurde an ${escapeHtml(to)} gesendet.</p>`;
-
-    const html = `<!doctype html><html><body style="margin:0;padding:0;background:#f5f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
-<table width="100%" cellpadding="0" cellspacing="0" style="padding:40px 20px"><tr><td align="center">
-<table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;padding:40px;max-width:560px">
-<tr><td>
-${logo}
-<div style="font-size:15px;line-height:1.6;color:#475569">${bodyHtml}</div>
-${sig}
-</td></tr></table>
-</td></tr></table>
-</body></html>`;
+    const { renderEmail } = await import("../_shared/email-wrapper.ts");
+    const { html } = renderEmail({
+      subject,
+      body: bodyResolved,
+      tenant,
+      recipient: to,
+    });
 
     const transporter = nodemailer.createTransport({
       host: tenant.smtp_host,
