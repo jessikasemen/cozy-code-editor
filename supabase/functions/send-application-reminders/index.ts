@@ -250,17 +250,8 @@ function buildHtml(subject: string, body: string, signature: string, tenant: Ten
   const bodyForWrapper = sigText
     ? `${bodyHtml}\n\n<div style="border-top:1px solid #e2e8f0;margin-top:24px;padding-top:16px;color:#94a3b8;font-size:12px;line-height:1.5">${sigText.replace(/\n/g, "<br>")}</div>`
     : bodyHtml;
-  // dynamic import kept out of hot path — inline require via eval since Deno ESM
-  const { renderEmail } = require_wrapper();
   const { html } = renderEmail({ subject: subj, body: bodyForWrapper, tenant });
   return html;
-}
-
-let __wrapperCache: any = null;
-function require_wrapper(): any {
-  if (__wrapperCache) return __wrapperCache;
-  // synchronous require via top-level import cached below (see async loader in caller)
-  return __wrapperCache;
 }
 
 async function sendMail(tenant: TenantRow, to: string, subject: string, html: string) {
