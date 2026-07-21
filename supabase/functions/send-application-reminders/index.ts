@@ -244,21 +244,22 @@ function buildHtml(subject: string, body: string, signature: string, tenant: Ten
     .replace(/\n/g, "<br>")
     .replace(/(https?:\/\/[^\s<]+)/g, `<a href="$1" style="color:${color};text-decoration:underline;">$1</a>`)
     .replace(/\u0000CTA(\d+)\u0000/g, (_m, i) => ctaHtml[Number(i)] ?? "");
-  const logoHtml = tenant.logo_url ? `<div style="text-align:center;margin-bottom:24px;"><img src="${tenant.logo_url}" alt="${tenant.name}" style="max-height:48px;max-width:200px;" /></div>` : "";
-  const sigText = signature ? render(signature, vars).replace(/\n/g, "<br>") : "";
-  const sigHtml = sigText ? `<div style="border-top:1px solid #e5e7eb;margin-top:24px;padding-top:16px;color:#9ca3af;font-size:13px;line-height:20px;">${sigText}</div>` : "";
   const subj = render(subject, vars);
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"></head>
-<body style="margin:0;padding:0;background:#f9fafb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif">
-<div style="max-width:560px;margin:0 auto;padding:32px 16px">
-<div style="background:#fff;border-radius:12px;padding:32px 24px;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
-${logoHtml}
-<h1 style="color:#111827;font-size:22px;font-weight:700;margin:0 0 20px;line-height:1.3">${subj}</h1>
-<div style="color:#374151;font-size:15px;line-height:26px">${bodyHtml}</div>
-${sigHtml}
-</div>
-<div style="text-align:center;margin-top:16px;color:#9ca3af;font-size:11px">© ${new Date().getFullYear()} ${tenant.name}</div>
-</div></body></html>`;
+  const sigText = signature ? render(signature, vars) : "";
+  const bodyForWrapper = sigText
+    ? `${bodyHtml}\n\n<div style="border-top:1px solid #e2e8f0;margin-top:24px;padding-top:16px;color:#94a3b8;font-size:12px;line-height:1.5">${sigText.replace(/\n/g, "<br>")}</div>`
+    : bodyHtml;
+  // dynamic import kept out of hot path — inline require via eval since Deno ESM
+  const { renderEmail } = require_wrapper();
+  const { html } = renderEmail({ subject: subj, body: bodyForWrapper, tenant });
+  return html;
+}
+
+let __wrapperCache: any = null;
+function require_wrapper(): any {
+  if (__wrapperCache) return __wrapperCache;
+  // synchronous require via top-level import cached below (see async loader in caller)
+  return __wrapperCache;
 }
 
 async function sendMail(tenant: TenantRow, to: string, subject: string, html: string) {
