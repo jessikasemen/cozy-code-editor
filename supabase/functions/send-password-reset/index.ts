@@ -205,7 +205,7 @@ serve(async (req) => {
     const subject = renderTemplate(subjectTpl, vars).replace(/<[^>]+>/g, "");
     let inner = renderTemplate(bodyTpl, vars);
     if (!/<[a-z][\s\S]*>/i.test(inner)) inner = inner.replace(/\n/g, "<br/>");
-    const html = shellHtml(tenant, inner);
+    const html = await shellHtml(tenant, inner, email);
 
     const transporter = nodemailer.createTransport({
       host: tenant.smtp_host,
