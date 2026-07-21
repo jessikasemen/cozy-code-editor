@@ -13,9 +13,13 @@
 //   import { renderEmail, htmlToText } from "../_shared/email-wrapper.ts";
 //   const { html, text, subject } = renderEmail({ subject, body, tenant, recruiter, vars });
 
+import { resolveEmailLogoUrl } from "./email-logo.ts";
+
 export type TenantBrand = {
   name: string;
   logo_url?: string | null;
+  domain?: string | null;
+  primary_domain?: string | null;
   primary_color?: string | null;
   email_signature?: string | null;
   reply_to_email?: string | null;
@@ -99,13 +103,13 @@ export function renderEmail(opts: RenderOptions): { html: string; text: string; 
 
   // Nur absolute https-URLs als Logo einbetten — relative Pfade oder Storage-URLs
   // ohne öffentliche Erreichbarkeit erzeugen im Mail-Client ein defektes Bild-Icon.
-  const logoUrl = tenant.logo_url && /^https:\/\//i.test(tenant.logo_url) ? tenant.logo_url : null;
+  const logoUrl = resolveEmailLogoUrl(tenant.logo_url, tenant.primary_domain || tenant.domain).url;
   const logoBlock = logoUrl
     ? `<img src="${logoUrl}" alt="${escapeHtml(tenant.name)}" style="max-height:48px;max-width:220px;height:auto;display:inline-block;border:0;outline:none;text-decoration:none;" />`
     : `<div style="font-size:22px;font-weight:700;color:${color};letter-spacing:-0.3px;">${escapeHtml(tenant.name)}</div>`;
 
   const spamHintBlock = spamHint
-    ? `<div style="margin:24px 0 8px;padding:14px 16px;background:#fef3c7;border-left:3px solid #f59e0b;border-radius:4px;color:#78350f;font-size:13px;line-height:1.55;">💡 <strong>Tipp:</strong> Sollten Sie diese E-Mail nicht im Posteingang finden, schauen Sie kurz in den Spam-Ordner und markieren Sie uns bitte als „Kein Spam“ – so gelangen künftige Nachrichten sicher zu Ihnen.</div>`
+    ? `<div style="margin:24px 0 8px;padding:14px 16px;background:#fef3c7;border-left:3px solid #f59e0b;border-radius:4px;color:#78350f;font-size:13px;line-height:1.55;"><strong>Hinweis:</strong> Sollten Sie diese E-Mail nicht im Posteingang finden, schauen Sie kurz in den Spam-Ordner und markieren Sie uns bitte als „Kein Spam“ – so gelangen künftige Nachrichten sicher zu Ihnen.</div>`
     : "";
 
   const recruiterBlock = recruiter?.name

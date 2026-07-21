@@ -12,6 +12,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import nodemailer from "https://esm.sh/nodemailer@6.9.14";
 import { resolveSender, type EmailKind } from "../_shared/sender-resolver.ts";
+import { pickLandingLogo, resolveEmailLogo } from "../_shared/email-logo.ts";
 
 
 const corsHeaders = {
@@ -102,32 +103,6 @@ const TEMPLATE_TO_KIND: Record<string, EmailKind> = {
   bewerbung_magic_link: "broker_interview_invite",
 };
 
-function cleanHost(domain: unknown): string {
-  return String(domain ?? "").trim().replace(/^https?:\/\//i, "").replace(/\/+$/, "");
-}
-
-function pickLandingLogo(landing: any): string | null {
-  return landing?.logo_url
-    || landing?.branding?.logo_url
-    || landing?.branding?.logo_image
-    || landing?.slots?.logo_image
-    || landing?.intermediate_logo_url
-    || null;
-}
-
-function resolveEmailLogoUrl(raw: unknown, landingDomain?: unknown): string | null {
-  const value = String(raw ?? "").trim();
-  if (!value || value.startsWith("data:")) return null;
-  if (/^https:\/\//i.test(value)) return value;
-  if (/^http:\/\//i.test(value)) return value.replace(/^http:\/\//i, "https://");
-
-  const host = cleanHost(landingDomain);
-  if (!host) return null;
-  const path = value.replace(/^\.\//, "").replace(/^\/+/, "");
-  return path ? `https://${host}/${path}` : null;
-}
-
-
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -179,7 +154,7 @@ serve(async (req) => {
 
     const { data: tenant, error: tErr } = await supabaseAdmin
       .from("tenants")
-      .select("id, name, domain, logo_url, primary_color, sender_email, sender_name, reply_to_email, smtp_host, smtp_port, smtp_username, smtp_password, is_active, emails_paused, emails_paused_reason, emails_paused_by, welcome_email_subject, welcome_email_body, application_received_subject, application_received_body, application_received_button_label")
+      .select("id, name, domain, primary_domain, logo_url, primary_color, sender_email, sender_name, reply_to_email, smtp_host, smtp_port, smtp_username, smtp_password, is_active, emails_paused, emails_paused_reason, emails_paused_by, welcome_email_subject, welcome_email_body, application_received_subject, application_received_body, application_received_button_label")
       .eq("id", effectiveTenantId)
       .maybeSingle();
 
@@ -288,12 +263,11 @@ serve(async (req) => {
     const bodyForWrapper = renderedBody.hasCta
       ? renderedBody.html
       : `${renderedBody.html}\n{{cta:${buttonLabel}|${registrationLink}}}\n<p style="font-size:12px;color:#94a3b8;margin:12px 0 0;">Sollte der Button nicht funktionieren, kopieren Sie bitte den folgenden Link in Ihren Browser:<br><a href="${escapeAttr(registrationLink)}" style="color:${brand};word-break:break-all">${escapeHtml(registrationLink)}</a></p>`;
-    // Logo-Fallback: wenn der Tenant kein Logo hat, das Logo der zugehörigen
-    // Landing Page verwenden. Wichtig: applications hat source_landing_id /
-    // target_landing_id — nicht landing_page_id. Der alte Fallback lief daher
-    // ins Leere und zeigte nur die Wortmarke.
-    let effectiveLogoUrl: string | null = resolveEmailLogoUrl(tenant.logo_url);
-    if (!effectiveLogoUrl && body.applicationId) {
+    // Einheitliche Logo-Auflösung: Tenant → Fast-Track-Landing → Ziel-Landing → Quell-Landing.
+    let sourceLanding: any = null;
+    let targetLanding: any = null;
+    let fastTrackLanding: any = null;
+    if (body.applicationId) {
       try {
         const { data: appRow } = await supabaseAdmin
           .from("applications")
@@ -301,49 +275,56 @@ serve(async (req) => {
           .eq("id", body.applicationId)
           .maybeSingle();
 
-        const preferFasttrackLogo = routingKind?.startsWith("fasttrack_") ?? false;
-        const landingIds = preferFasttrackLogo
-          ? [(appRow as any)?.target_landing_id, (appRow as any)?.source_landing_id]
-          : [(appRow as any)?.source_landing_id, (appRow as any)?.target_landing_id];
-
-        const ids = landingIds.filter(Boolean) as string[];
+        const ids = Array.from(new Set([(appRow as any)?.source_landing_id, (appRow as any)?.target_landing_id].filter(Boolean) as string[]));
+        const lpMap = new Map<string, any>();
         if (ids.length) {
           const { data: lps } = await supabaseAdmin
             .from("landing_pages")
-            .select("id, domain, logo_url, branding, slots, intermediate_logo_url")
+            .select("id, domain, logo_url, branding, slots, intermediate_logo_url, linked_fasttrack_landing_id, flow_type")
             .in("id", ids);
-          for (const id of ids) {
-            const lp: any = (lps ?? []).find((row: any) => row.id === id);
-            effectiveLogoUrl = resolveEmailLogoUrl(pickLandingLogo(lp), lp?.domain);
-            if (effectiveLogoUrl) break;
-          }
+          for (const lp of (lps ?? []) as any[]) lpMap.set(lp.id, lp);
         }
 
-        if (!effectiveLogoUrl && (appRow as any)?.source_slug) {
-          const { data: lp2 } = await supabaseAdmin
-            .from("landing_pages")
-            .select("domain, logo_url, branding, slots, intermediate_logo_url")
-            .eq("slug", (appRow as any).source_slug)
-            .maybeSingle();
-          effectiveLogoUrl = resolveEmailLogoUrl(pickLandingLogo(lp2), (lp2 as any)?.domain);
-        }
+        sourceLanding = (appRow as any)?.source_landing_id ? lpMap.get((appRow as any).source_landing_id) : null;
+        targetLanding = (appRow as any)?.target_landing_id ? lpMap.get((appRow as any).target_landing_id) : null;
 
-        if (!effectiveLogoUrl && (appRow as any)?.source_slug) {
-          const { data: lp3 } = await supabaseAdmin
+        const linkedFastTrackId = sourceLanding?.linked_fasttrack_landing_id || targetLanding?.linked_fasttrack_landing_id;
+        if (linkedFastTrackId && !lpMap.has(linkedFastTrackId)) {
+          const { data: linked } = await supabaseAdmin
             .from("landing_pages")
-            .select("domain, logo_url, branding, slots, intermediate_logo_url")
-            .eq("source_slug", (appRow as any).source_slug)
+            .select("id, domain, logo_url, branding, slots, intermediate_logo_url, linked_fasttrack_landing_id, flow_type")
+            .eq("id", linkedFastTrackId)
             .maybeSingle();
-          effectiveLogoUrl = resolveEmailLogoUrl(pickLandingLogo(lp3), (lp3 as any)?.domain);
+          if (linked) lpMap.set(linkedFastTrackId, linked);
+        }
+        fastTrackLanding = linkedFastTrackId ? lpMap.get(linkedFastTrackId) : null;
+        if (!fastTrackLanding && targetLanding?.flow_type !== "broker") fastTrackLanding = targetLanding;
+        if (!fastTrackLanding && sourceLanding?.flow_type !== "broker") fastTrackLanding = sourceLanding;
+
+        if ((!sourceLanding || !targetLanding) && (appRow as any)?.source_slug) {
+          const { data: slugLanding } = await supabaseAdmin
+            .from("landing_pages")
+            .select("id, domain, logo_url, branding, slots, intermediate_logo_url, linked_fasttrack_landing_id, flow_type")
+            .or(`slug.eq.${(appRow as any).source_slug},source_slug.eq.${(appRow as any).source_slug}`)
+            .maybeSingle();
+          sourceLanding = sourceLanding || slugLanding;
         }
       } catch (e) { console.warn("[send-invitation-email] logo fallback failed:", (e as any)?.message ?? e); }
     }
+
+    const logo = resolveEmailLogo([
+      { source: "tenant.logo_url", url: tenant.logo_url, domain: tenant.primary_domain || tenant.domain },
+      { source: "fasttrack_landing.logo", url: pickLandingLogo(fastTrackLanding), domain: fastTrackLanding?.domain },
+      { source: "target_landing.logo", url: pickLandingLogo(targetLanding), domain: targetLanding?.domain },
+      { source: "source_landing.logo", url: pickLandingLogo(sourceLanding), domain: sourceLanding?.domain },
+    ]);
+    const logoMetadata = { email_logo_url: logo.url, email_logo_source: logo.source, email_logo_reason: logo.reason, email_logo_candidates: logo.candidates };
 
     const { renderEmail } = await import("../_shared/email-wrapper.ts");
     const { html } = renderEmail({
       subject: headline,
       body: bodyForWrapper,
-      tenant: { ...tenant, logo_url: effectiveLogoUrl },
+      tenant: { ...tenant, logo_url: logo.url },
       recipient: to,
     });
 
@@ -366,6 +347,7 @@ serve(async (req) => {
       tenant_id: tenant.id,
       tenant_name: tenant.name,
       template_name: templateNameOverride || "invitation",
+      ...logoMetadata,
     };
 
     const verifyRes = await verifyOrPause(supabaseAdmin, tenant, transporter);
