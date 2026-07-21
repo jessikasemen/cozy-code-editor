@@ -12,6 +12,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import nodemailer from "https://esm.sh/nodemailer@6.9.14";
 import { renderEmail } from "../_shared/email-wrapper.ts";
 import { resolveSender } from "../_shared/sender-resolver.ts";
+import { pickLandingLogo, resolveEmailLogo, type LogoResolution } from "../_shared/email-logo.ts";
 
 const FUNCTION_VERSION = "2026-07-18-booking-confirmation-v3-lookback72h";
 const REMINDER_KIND = "booking_confirmation";
@@ -29,9 +30,9 @@ const DEFAULT_BODY = `Hallo {{first_name}},
 
 vielen Dank – Ihr Termin für das Bewerbungsgespräch bei {{tenant_name}} ist fest reserviert:
 
-📅  {{appointment_date}}
-🕐  {{appointment_time}} Uhr
-⏱️  Dauer: ca. {{duration_minutes}} Minuten
+Datum: {{appointment_date}}
+Uhrzeit: {{appointment_time}} Uhr
+Dauer: ca. {{duration_minutes}} Minuten
 
 Sie finden den Termin als Kalendereintrag (.ics) im Anhang – einfach öffnen und in Outlook, Google oder Apple-Kalender speichern.
 
@@ -56,33 +57,13 @@ function portalHost(domain: unknown): string {
   return clean ? `portal.${clean}` : "";
 }
 
-function pickLandingLogo(landing: any): string | null {
-  return landing?.logo_url
-    || landing?.branding?.logo_url
-    || landing?.branding?.logo_image
-    || landing?.slots?.logo_image
-    || landing?.intermediate_logo_url
-    || null;
-}
-
-function resolveEmailLogoUrl(raw: unknown, landingDomain: unknown): string | null {
-  const value = String(raw ?? "").trim();
-  if (!value || value.startsWith("data:")) return null;
-  if (/^https:\/\//i.test(value)) return value;
-  if (/^http:\/\//i.test(value)) return value.replace(/^http:\/\//i, "https://");
-
-  const host = cleanHost(landingDomain);
-  if (!host) return null;
-  const path = value.replace(/^\.\//, "").replace(/^\/+/, "");
-  return path ? `https://${host}/${path}` : null;
-}
-
-function effectiveLogoUrl(tenant: TenantRow, sourceLanding: any, targetLanding: any, fastTrackLanding: any): string | null {
-  return resolveEmailLogoUrl(tenant.logo_url, null)
-    || resolveEmailLogoUrl(pickLandingLogo(sourceLanding), sourceLanding?.domain)
-    || resolveEmailLogoUrl(pickLandingLogo(fastTrackLanding), fastTrackLanding?.domain)
-    || resolveEmailLogoUrl(pickLandingLogo(targetLanding), targetLanding?.domain)
-    || null;
+function resolveBookingLogo(tenant: TenantRow, sourceLanding: any, targetLanding: any, fastTrackLanding: any): LogoResolution {
+  return resolveEmailLogo([
+    { source: "tenant.logo_url", url: tenant.logo_url, domain: tenant.primary_domain || tenant.domain },
+    { source: "fasttrack_landing.logo", url: pickLandingLogo(fastTrackLanding), domain: fastTrackLanding?.domain },
+    { source: "target_landing.logo", url: pickLandingLogo(targetLanding), domain: targetLanding?.domain },
+    { source: "source_landing.logo", url: pickLandingLogo(sourceLanding), domain: sourceLanding?.domain },
+  ]);
 }
 
 interface TenantRow {
@@ -151,6 +132,7 @@ async function logEmailSend(
   html: string | null,
   status: "sent" | "failed",
   error?: string,
+  extraMetadata?: Record<string, unknown>,
 ) {
   try {
     await admin.from("email_send_log").insert({
@@ -163,7 +145,7 @@ async function logEmailSend(
       rendered_subject: subject,
       rendered_html: html,
       sender_email: tenant.sender_email ?? tenant.smtp_username,
-      metadata: { appointment_id: appt.id, application_id: app.id, source: "send-booking-confirmation", sender_kind: "broker_booking_confirmation", resolved_tenant_id: tenant.id },
+      metadata: { appointment_id: appt.id, application_id: app.id, source: "send-booking-confirmation", sender_kind: "broker_booking_confirmation", resolved_tenant_id: tenant.id, ...(extraMetadata ?? {}) },
     });
   } catch (e) {
     console.warn("email_send_log insert skipped:", e);
@@ -317,12 +299,15 @@ serve(async (req) => {
         button_label: tenant.booking_confirmation_button || DEFAULT_BUTTON,
       };
 
+      const logo = resolveBookingLogo(tenant, sourceLanding, targetLanding, fastTrackLanding);
+      const logoMetadata = { email_logo_url: logo.url, email_logo_source: logo.source, email_logo_reason: logo.reason, email_logo_candidates: logo.candidates };
+
       const { html, text, subject } = renderEmail({
         subject: tenant.booking_confirmation_subject || DEFAULT_SUBJECT,
         body: tenant.booking_confirmation_body || DEFAULT_BODY,
         preheader: DEFAULT_PREHEADER,
         spamHint: true,
-        tenant: { ...tenant, logo_url: effectiveLogoUrl(tenant, sourceLanding, targetLanding, fastTrackLanding) },
+        tenant: { ...tenant, logo_url: logo.url },
         recruiter: { name: recruiterName, avatar_url: recruiterAvatar, role_label: "Personalabteilung" },
         vars,
       });
@@ -355,7 +340,7 @@ serve(async (req) => {
           application_id: app.id, tenant_id: tenant.id, reminder_kind: REMINDER_KIND,
           recipient_email: app.email, status: "sent",
         }, { onConflict: "application_id,reminder_kind" });
-        await logEmailSend(admin, tenant, appt, app, subject, html, "sent");
+        await logEmailSend(admin, tenant, appt, app, subject, html, "sent", undefined, logoMetadata);
         sent++; results.push({ id: appt.id, status: "sent" });
         await new Promise((r) => setTimeout(r, 3000));
       } catch (e: any) {
@@ -365,7 +350,7 @@ serve(async (req) => {
           application_id: app.id, tenant_id: tenant.id, reminder_kind: REMINDER_KIND,
           recipient_email: app.email, status: "failed", error: err,
         }, { onConflict: "application_id,reminder_kind" });
-        await logEmailSend(admin, tenant, appt, app, subject, html, "failed", err);
+        await logEmailSend(admin, tenant, appt, app, subject, html, "failed", err, logoMetadata);
         results.push({ id: appt.id, status: "failed", error: err });
       }
     }
