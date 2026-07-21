@@ -4,9 +4,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { format, addDays, startOfDay, isSameDay, startOfWeek } from "date-fns";
 import { de } from "date-fns/locale";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Loader2, CalendarCheck, Clock } from "lucide-react";
+import { Loader2, CalendarCheck } from "lucide-react";
 import {
   getScheduleForApplicant,
   getAvailableSlots,
