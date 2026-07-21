@@ -45,10 +45,19 @@ export function resolveEmailLogoUrl(raw: unknown, domain?: unknown): { url: stri
   if (/^\/\//.test(value)) return { url: `https:${value}`, reason: "protocol_relative" };
   if (/^(www\.)?[a-z0-9-]+(\.[a-z0-9-]+)+\//i.test(value)) return { url: `https://${value.replace(/^\/+/g, "")}`, reason: "host_path" };
 
+  const normalizedPath = value.replace(/^\.\//, "").replace(/^\/+/g, "");
+  if (/^(storage\/v1\/object\/public|object\/public)\//i.test(normalizedPath)) {
+    const storageBase = String(Deno.env.get("API_EXTERNAL_URL") || Deno.env.get("SUPABASE_URL") || "").trim().replace(/\/+$/, "");
+    if (storageBase) {
+      const path = normalizedPath.replace(/^object\/public\//i, "storage/v1/object/public/");
+      return { url: `${storageBase}/${path}`.replace(/^http:\/\//i, "https://"), reason: "storage_public_path" };
+    }
+  }
+
   const host = cleanEmailLogoHost(domain);
   if (!host) return { url: null, reason: "relative_without_domain" };
 
-  const path = value.replace(/^\.\//, "").replace(/^\/+/g, "");
+  const path = normalizedPath;
   if (!path) return { url: null, reason: "empty_path" };
   return { url: `https://${host}/${path}`, reason: "relative_with_domain" };
 }
